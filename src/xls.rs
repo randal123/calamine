@@ -142,6 +142,7 @@ pub struct XlsOptions {
 /// A struct representing an old xls format file (CFB)
 pub struct Xls<RS> {
     sheets: BTreeMap<String, (Range<DataType>, Range<String>)>,
+    sheet_order: Vec<String>,
     vba: Option<VbaProject>,
     metadata: Metadata,
     marker: PhantomData<RS>,
@@ -188,6 +189,7 @@ impl<RS: Read + Seek> Xls<RS> {
 
         let mut xls = Xls {
             sheets: BTreeMap::new(),
+            sheet_order: Vec::with_capacity(2),
             vba,
             marker: PhantomData,
             metadata: Metadata::default(),
@@ -230,9 +232,11 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     }
 
     fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
-        self.sheets
+        self.sheet_order
             .iter()
-            .map(|(name, (data, _))| (name.to_owned(), data.clone()))
+            .map(|name| (name, self.sheets.get(name)))
+            .filter(|(_, sheet)| sheet.is_some())
+            .map(|(name, data)| (name.clone(), data.unwrap().0.clone()))
             .collect()
     }
 
@@ -452,6 +456,7 @@ impl<RS: Read + Seek> Xls<RS> {
             }
             let range = Range::from_sparse(cells);
             let formula = Range::from_sparse(formulas);
+            self.sheet_order.push(name.clone());
             sheets.insert(name, (range, formula));
         }
 
