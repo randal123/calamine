@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::min;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
@@ -18,7 +18,8 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, MergeCell, SheetInfo,
+    Cell, CellErrorType, DataType, MergeCell, Metadata, Range, Reader, Sheet, SheetInfo, SheetType,
+    SheetVisible,
 };
 
 #[derive(Debug)]
@@ -149,6 +150,7 @@ pub struct Xls<RS> {
     options: XlsOptions,
     formats: Vec<CellFormat>,
     merged_cells: HashMap<String, Vec<MergeCell>>,
+    hidden_columns: HashMap<String, HashSet<u32>>,
     is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
@@ -195,7 +197,8 @@ impl<RS: Read + Seek> Xls<RS> {
             marker: PhantomData,
             metadata: Metadata::default(),
             options,
-	    merged_cells: HashMap::new(),
+            merged_cells: HashMap::new(),
+            hidden_columns: HashMap::new(),
             is_1904: false,
             formats: Vec::new(),
             #[cfg(feature = "picture")]
@@ -229,7 +232,15 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
     fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), XlsError> {
         self.sheets
             .get(name)
-            .map(|r| (r.0.clone(), SheetInfo {merged_cells: self.merged_cells.get(name).map_or(vec![], |mc| mc.to_vec()) }))
+            .map(|r| {
+                (
+                    r.0.clone(),
+                    SheetInfo {
+                        merged_cells: self.merged_cells.get(name).map_or_else(|| Vec::default(), |mc| mc.to_vec()),
+			hidden_columns: self.hidden_columns.get(name).map_or_else(|| HashSet::default(), |hc| hc.iter().copied().collect())
+                    },
+                )
+            })
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
     }
 
@@ -238,7 +249,16 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .iter()
             .map(|name| (name, self.sheets.get(name)))
             .filter(|(_, sheet)| sheet.is_some())
-            .map(|(name, data)| (name.clone(), data.unwrap().0.clone(), SheetInfo {merged_cells: self.merged_cells.get(name).map_or(vec![], |mc| mc.to_vec())}))
+            .map(|(name, data)| {
+                (
+                    name.clone(),
+                    data.unwrap().0.clone(),
+                    SheetInfo {
+                        merged_cells: self.merged_cells.get(name).map_or_else(|| Vec::default(), |mc| mc.to_vec()),
+			hidden_columns: self.hidden_columns.get(name).map_or_else(|| HashSet::default(), |hc| hc.iter().copied().collect())
+                    },
+                )
+            })
             .collect()
     }
 
@@ -386,7 +406,8 @@ impl<RS: Read + Seek> Xls<RS> {
         debug!("defined_names: {:?}", defined_names);
 
         let mut sheets = BTreeMap::new();
-	let merge_cells = &mut self.merged_cells;
+        let merge_cells = &mut self.merged_cells;
+        let hidden_columns = &mut self.hidden_columns;
         let fmla_sheet_names = sheet_names
             .iter()
             .map(|(_, n)| n.clone())
@@ -396,7 +417,8 @@ impl<RS: Read + Seek> Xls<RS> {
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
-	    let mut sheet_mcells = Vec::new();
+            let mut s_hidden_columns = HashSet::new();
+            let mut sheet_mcells = Vec::new();
             let mut fmla_pos = (0, 0);
             for record in records {
                 let r = record?;
@@ -455,9 +477,19 @@ impl<RS: Read + Seek> Xls<RS> {
                         });
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
-		    0xE5 => {
-			sheet_mcells.append(&mut parse_merge_cells(r.data));
-		    }
+                    0xE5 => {
+                        sheet_mcells.append(&mut parse_merge_cells(r.data));
+                    }
+                    0x7D => {
+                        let is_hiden = r.data[8] & 0x01;
+                        if is_hiden > 0 {
+                            let col_start = u16::from_le_bytes([r.data[0], r.data[1]]);
+                            let col_end = u16::from_le_bytes([r.data[2], r.data[3]]);
+                            for i in col_start..=col_end {
+                                s_hidden_columns.insert(i.into());
+                            }
+                        }
+                    }
                     _ => (),
                 }
             }
@@ -465,7 +497,8 @@ impl<RS: Read + Seek> Xls<RS> {
             let formula = Range::from_sparse(formulas);
             self.sheet_order.push(name.clone());
             sheets.insert(name.clone(), (range, formula));
-	    merge_cells.insert(name, sheet_mcells);
+            hidden_columns.insert(name.clone(), s_hidden_columns);
+            merge_cells.insert(name, sheet_mcells);
         }
 
         self.sheets = sheets;

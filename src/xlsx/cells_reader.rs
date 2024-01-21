@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet};
 
 use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
@@ -26,6 +26,8 @@ pub struct XlsxCellReader<'a> {
     col_index: u32,
     buf: Vec<u8>,
     cell_buf: Vec<u8>,
+    pub merged_cells: Option<Vec<MergeCell>>,
+    pub hidden_columns: Option<HashSet<u32>>,
 }
 
 impl<'a> XlsxCellReader<'a> {
@@ -37,6 +39,8 @@ impl<'a> XlsxCellReader<'a> {
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
         let mut dimensions = Dimensions::default();
+	let mut merged_cells = None;
+	let mut hidden_columns = None;
         'xml: loop {
             buf.clear();
             match xml.read_event_into(&mut buf).map_err(XlsxError::Xml)? {
@@ -54,6 +58,18 @@ impl<'a> XlsxCellReader<'a> {
                         }
                         return Err(XlsxError::UnexpectedNode("dimension"));
                     }
+		    b"cols" => {
+			let mut hc = HashSet::new();
+			if let Ok(_) = read_columns_info(&mut xml, &mut hc) {
+			    hidden_columns = Some(hc);
+			}
+		    }
+		    b"mergeCells" => {
+			let mut mc = Vec::new();
+			if let Ok(_) = read_merged_cells(&mut xml, &mut mc) {
+			    merged_cells = Some(mc);
+			}
+		    }
                     b"sheetData" => break,
                     _ => (),
                 },
@@ -71,6 +87,8 @@ impl<'a> XlsxCellReader<'a> {
             col_index: 0,
             buf: Vec::with_capacity(1024),
             cell_buf: Vec::with_capacity(1024),
+	    merged_cells,
+	    hidden_columns,
         })
     }
 
@@ -192,61 +210,176 @@ impl<'a> XlsxCellReader<'a> {
     }
 
     pub fn read_merge_cells(&mut self, merge_cells: &mut Vec<MergeCell>) -> Result<(), XlsxError> {
-        fn resolve_merge_cell(
-            value: &[u8],
-            merge_cells: &mut Vec<MergeCell>,
-        ) -> Result<(), XlsxError> {
-            let dims = get_dimension(value)?;
-            let Dimensions {
-                start: (r1, c1),
-                end: (r2, c2),
-            } = dims;
-            merge_cells.push(MergeCell {
-                rw_first: r1,
-                rw_last: r2,
-                col_first: c1,
-                col_last: c2,
-            });
-            Ok(())
-        }
+	read_merged_cells(&mut self.xml, merge_cells)
+    }
 
-        let mut buf = Vec::new();
-        loop {
+    pub fn read_merged_or_hidden(&mut self) -> Result<(Option<Vec<MergeCell>>,  Option<HashSet<u32>>), XlsxError> {
+	let mut merged_cells = None;
+	let mut hidden_cols = None;
+	let mut buf = Vec::new();
+	loop {
             match self.xml.read_event_into(&mut buf) {
-                Ok(event) => match event {
+		Ok(event) => match event {
                     Event::Start(ref s) => {
-                        if s.local_name().as_ref().eq(b"mergeCell") {
+			if s.local_name().as_ref().eq(b"mergeCell") {
+			    let mut mc = Vec::new();
                             for attribute in s.attributes() {
-                                match attribute {
+				match attribute {
                                     Ok(Attribute {
-                                        key,
-                                        value: Cow::Borrowed(value),
+					key,
+					value: Cow::Borrowed(value),
                                     }) if key.as_ref() == b"ref" => {
-                                        resolve_merge_cell(value, merge_cells)?
+					resolve_merge_cell(value, &mut mc)?
                                     }
                                     Err(e) => {
-                                        return Err(XlsxError::Xml(quick_xml::Error::InvalidAttr(
+					return Err(XlsxError::Xml(quick_xml::Error::InvalidAttr(
                                             e,
-                                        )))
+					)))
                                     }
                                     _ => {} // ignore other attributes
+				}
+                            }
+			    merged_cells = Some(mc);
+			} else if s.local_name().as_ref().eq(b"cols") {
+			    let mut hc = HashSet::new();
+			    read_columns_info(&mut self.xml, &mut hc)?;
+			    hidden_cols = Some(hc);
+			}
+                    }
+                    Event::End(ref e) => {
+			if e.local_name().as_ref().eq(b"worksheet") {
+                            break;
+			}
+                    }
+                    _ => (),
+		},
+		Err(e) => return Err(XlsxError::Xml(e)),
+            }
+	}
+	Ok((merged_cells, hidden_cols))
+    }
+}
+
+ fn resolve_merge_cell(
+        value: &[u8],
+        merge_cells: &mut Vec<MergeCell>,
+    ) -> Result<(), XlsxError> {
+        let dims = get_dimension(value)?;
+        let Dimensions {
+            start: (r1, c1),
+            end: (r2, c2),
+        } = dims;
+        merge_cells.push(MergeCell {
+            rw_first: r1,
+            rw_last: r2,
+            col_first: c1,
+            col_last: c2,
+        });
+        Ok(())
+    }
+
+fn read_merged_cells(xml: &mut XlReader, merge_cells: &mut Vec<MergeCell>) -> Result<(), XlsxError>  {
+    let mut buf = Vec::new();
+    loop {
+        match xml.read_event_into(&mut buf) {
+            Ok(event) => match event {
+                Event::Start(ref s) => {
+                    if s.local_name().as_ref().eq(b"mergeCell") {
+                        for attribute in s.attributes() {
+                            match attribute {
+                                Ok(Attribute {
+                                    key,
+                                    value: Cow::Borrowed(value),
+                                }) if key.as_ref() == b"ref" => {
+                                    resolve_merge_cell(value, merge_cells)?
+                                }
+                                Err(e) => {
+                                    return Err(XlsxError::Xml(quick_xml::Error::InvalidAttr(
+                                        e,
+                                    )))
+                                }
+                                _ => {} // ignore other attributes
+                            }
+                        }
+                    }
+                }
+                Event::End(ref e) => {
+                    if e.local_name().as_ref().eq(b"mergeCells") {
+                        break;
+                    }
+                }
+                _ => (),
+            },
+            Err(e) => return Err(XlsxError::Xml(e)),
+        }
+    }
+
+    Ok(())
+}
+
+fn read_columns_info(
+    xml: &mut XlReader,
+    hidden_columns: &mut HashSet<u32>,
+) -> Result<(), XlsxError> {
+    let mut buf = Vec::new();
+    loop {
+        match xml.read_event_into(&mut buf) {
+            Ok(event) => match event {
+                Event::Start(ref s) => {
+                    if s.local_name().as_ref().eq(b"col") {
+                        let mut col_min = None;
+                        let mut col_max = None;
+                        let mut hidden = false;
+                        for attribute in s.attributes() {
+                            match attribute {
+                                Ok(Attribute {
+                                    key,
+                                    value: Cow::Borrowed(value),
+                                }) => {
+                                    if key.as_ref().eq_ignore_ascii_case(b"min") {
+					// FIXME, remove unrap()
+                                        if let Ok(v) = xml.decoder().decode(value).unwrap().parse::<u32>() {
+                                            col_min = Some(v);
+                                        }
+                                    } else if key.as_ref() == b"max" {
+					// FIXME, remove unrap()
+                                        if let Ok(v) = xml.decoder().decode(value).unwrap().parse::<u32>() {
+                                            col_max = Some(v);
+                                        }
+                                    } else if key.as_ref() == b"hidden" {
+                                        if value == b"1" {
+                                            hidden = true;
+                                        }
+                                    }
+                                }
+                                Err(e) => return Err(XlsxError::Xml(quick_xml::Error::InvalidAttr(e))),
+                                _ => {} // ignore other attributes
+                            }
+                        }
+
+                        if hidden {
+                            if let (Some(col_min), Some(col_max)) = (col_min, col_max) {
+                                if col_max >= col_min {
+                                    for i in col_min..=col_max {
+                                        hidden_columns.insert(i - 1);
+                                    }
                                 }
                             }
                         }
                     }
-                    Event::End(ref e) => {
-                        if e.local_name().as_ref().eq(b"mergeCells") {
-                            break;
-                        }
+                }
+                Event::End(ref e) => {
+                    if e.local_name().as_ref().eq(b"cols") {
+                        break;
                     }
-                    _ => (),
-                },
-                Err(e) => return Err(XlsxError::Xml(e)),
-            }
-        }
+                }
 
-        Ok(())
+                _ => (),
+            },
+            Err(e) => return Err(XlsxError::Xml(e)),
+        }
     }
+    Ok(())
 }
 
 fn read_value<'s>(

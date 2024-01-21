@@ -1,7 +1,7 @@
 mod cells_reader;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
@@ -744,9 +744,10 @@ impl<RS: Read + Seek> Xlsx<RS> {
         name: &str,
     ) -> Result<(Range<DataTypeRef<'a>>, SheetInfo), XlsxError> {
         let mut cell_reader = self.worksheet_cells_reader(name)?;
+	let mut merged_cells = cell_reader.merged_cells.take();
+	let mut hidden_columns = cell_reader.hidden_columns.take();
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
-	let mut merged_cells: Vec<MergeCell> = Vec::new();
         if len < 100_000 {
             cells.reserve(len as usize);
         }
@@ -759,14 +760,25 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 Ok(Some(cell)) => cells.push(cell),
                 Ok(None) => {
 		    // read merged cells
-		    cell_reader.read_merge_cells(&mut merged_cells)?;
+		    if merged_cells.is_none() || hidden_columns.is_none() {
+			if let Ok((mc, hc)) = cell_reader.read_merged_or_hidden() {
+			    if merged_cells.is_none() {
+				merged_cells = mc;
+			    }
+			    if hidden_columns.is_none() {
+				hidden_columns = hc;
+			    }
+			}
+		    }
 		    break;
 		},
                 Err(e) => return Err(e),
             }
         }
 
-        Ok((Range::from_sparse(cells), SheetInfo {merged_cells}))
+        Ok((Range::from_sparse(cells), SheetInfo {merged_cells: merged_cells.unwrap_or_else(|| Vec::default()),
+						  hidden_columns: hidden_columns.unwrap_or_else(|| HashSet::default())
+	}))
     }
 }
 

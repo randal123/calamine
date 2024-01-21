@@ -77,6 +77,7 @@ use datatype::DataTypeRef;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::cmp::{max, min};
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -372,6 +373,8 @@ pub struct Range<T> {
 pub struct SheetInfo {
     /// list of merged cells
     pub merged_cells: Vec<MergeCell>,
+    /// hidden columns
+    pub hidden_columns: HashSet<u32>,
 }
 
 impl<T: CellType> Range<T> {
