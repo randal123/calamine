@@ -132,6 +132,38 @@ impl fmt::Display for CellErrorType {
     }
 }
 
+/// Struct that holds information of merged rows/cols of Cell
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MergeCell {
+    rw_first: u32,
+    rw_last: u32,
+    col_first: u32,
+    col_last: u32,
+}
+
+impl MergeCell {
+    /// first row of merged cell
+    pub fn rw_first(&self) -> u32 {
+        self.rw_first
+    }
+
+    /// last row of merged cell
+    pub fn rw_last(&self) -> u32 {
+        self.rw_last
+    }
+
+    /// first column of merged cell
+    pub fn col_first(&self) -> u32 {
+        self.col_first
+    }
+
+    /// last column of merged cell
+    pub fn col_last(&self) -> u32 {
+        self.col_last
+    }
+}
+
+
 #[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub(crate) struct Dimensions {
     pub start: (u32, u32),
@@ -223,10 +255,10 @@ where
     fn metadata(&self) -> &Metadata;
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, Self::Error>;
+    fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), Self::Error>;
 
     /// Fetch all worksheet data & paths
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)>;
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>, SheetInfo)>;
 
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
@@ -261,7 +293,7 @@ where
 
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
-    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<Range<DataType>, Self::Error>> {
+    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<(Range<DataType>, SheetInfo), Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range(&name))
     }
@@ -333,6 +365,13 @@ pub struct Range<T> {
     start: (u32, u32),
     end: (u32, u32),
     inner: Vec<T>,
+}
+
+/// A struct that holds additional information like merged cells, hidden rows/columns
+#[derive(Debug, Default, Clone)]
+pub struct SheetInfo {
+    /// list of merged cells
+    pub merged_cells: Vec<MergeCell>,
 }
 
 impl<T: CellType> Range<T> {

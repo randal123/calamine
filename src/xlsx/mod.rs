@@ -19,7 +19,7 @@ use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellForm
 use crate::vba::VbaProject;
 use crate::{
     Cell, CellErrorType, DataType, Dimensions, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible, Table,
+    SheetVisible, Table, MergeCell, SheetInfo
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -688,7 +688,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let columns = match_table_meta.2.clone();
         let start_dim = match_table_meta.3.start;
         let end_dim = match_table_meta.3.end;
-        let range = self.worksheet_range(&sheet_name)?;
+        let (range, _) = self.worksheet_range(&sheet_name)?;
         let tbl_rng = range.range(start_dim, end_dim);
         Ok(Table {
             name,
@@ -742,10 +742,11 @@ impl<RS: Read + Seek> Xlsx<RS> {
     pub fn worksheet_range_ref<'a>(
         &'a mut self,
         name: &str,
-    ) -> Result<Range<DataTypeRef<'a>>, XlsxError> {
+    ) -> Result<(Range<DataTypeRef<'a>>, SheetInfo), XlsxError> {
         let mut cell_reader = self.worksheet_cells_reader(name)?;
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
+	let mut merged_cells: Vec<MergeCell> = Vec::new();
         if len < 100_000 {
             cells.reserve(len as usize);
         }
@@ -756,11 +757,16 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     ..
                 })) => (),
                 Ok(Some(cell)) => cells.push(cell),
-                Ok(None) => break,
+                Ok(None) => {
+		    // read merged cells
+		    cell_reader.read_merge_cells(&mut merged_cells)?;
+		    break;
+		},
                 Err(e) => return Err(e),
             }
         }
-        Ok(Range::from_sparse(cells))
+
+        Ok((Range::from_sparse(cells), SheetInfo {merged_cells}))
     }
 }
 
@@ -805,14 +811,15 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsxError> {
-        let rge = self.worksheet_range_ref(name)?;
+    fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), XlsxError> {
+	let (rge, sheet_info) = self.worksheet_range_ref(name)?;
         let inner = rge.inner.into_iter().map(|v| v.into()).collect();
-        Ok(Range {
+        Ok((Range {
             start: rge.start,
             end: rge.end,
             inner,
-        })
+        },
+	sheet_info))
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsxError> {
@@ -830,7 +837,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         Ok(Range::from_sparse(cells))
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>, SheetInfo)> {
         let names = self
             .sheets
             .iter()
@@ -839,13 +846,13 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         names
             .into_iter()
             .filter_map(|n| {
-                let rge = self.worksheet_range(&n).ok()?;
-                Some((n, rge))
+                let (rge, sheet_info) = self.worksheet_range(&n).ok()?;
+                Some((n, rge, sheet_info))
             })
             .collect()
     }
 
-    #[cfg(feature = "picture")]
+     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
     }

@@ -16,7 +16,7 @@ use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
 
 use crate::vba::VbaProject;
-use crate::{DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, SheetInfo};
 use std::marker::PhantomData;
 
 const MIMETYPE: &[u8] = b"application/vnd.oasis.opendocument.spreadsheet";
@@ -170,17 +170,17 @@ where
     }
 
     /// Read worksheet data in corresponding worksheet path
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, OdsError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), OdsError> {
         self.sheets
             .get(name)
             .ok_or_else(|| OdsError::WorksheetNotFound(name.into()))
-            .map(|r| r.0.to_owned())
+            .map(|r| (r.0.to_owned(), SheetInfo::default()))
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>, SheetInfo)> {
         self.sheets
             .iter()
-            .map(|(name, (range, _formula))| (name.to_owned(), range.clone()))
+            .map(|(name, (range, _formula))| (name.to_owned(), range.clone(), SheetInfo::default()))
             .collect()
     }
 
@@ -196,6 +196,7 @@ where
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
     }
+
 }
 
 struct Content {

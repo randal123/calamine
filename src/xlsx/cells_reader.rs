@@ -1,10 +1,13 @@
+use std::borrow::Cow;
+
 use quick_xml::{
     events::{attributes::Attribute, BytesStart, Event},
     name::QName,
 };
 
 use super::{
-    get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, XlReader,
+    get_attribute, get_dimension, get_row, get_row_column, read_string, Dimensions, MergeCell,
+    XlReader,
 };
 use crate::{
     datatype::DataTypeRef,
@@ -186,6 +189,63 @@ impl<'a> XlsxCellReader<'a> {
                 _ => (),
             }
         }
+    }
+
+    pub fn read_merge_cells(&mut self, merge_cells: &mut Vec<MergeCell>) -> Result<(), XlsxError> {
+        fn resolve_merge_cell(
+            value: &[u8],
+            merge_cells: &mut Vec<MergeCell>,
+        ) -> Result<(), XlsxError> {
+            let dims = get_dimension(value)?;
+            let Dimensions {
+                start: (r1, c1),
+                end: (r2, c2),
+            } = dims;
+            merge_cells.push(MergeCell {
+                rw_first: r1,
+                rw_last: r2,
+                col_first: c1,
+                col_last: c2,
+            });
+            Ok(())
+        }
+
+        let mut buf = Vec::new();
+        loop {
+            match self.xml.read_event_into(&mut buf) {
+                Ok(event) => match event {
+                    Event::Start(ref s) => {
+                        if s.local_name().as_ref().eq(b"mergeCell") {
+                            for attribute in s.attributes() {
+                                match attribute {
+                                    Ok(Attribute {
+                                        key,
+                                        value: Cow::Borrowed(value),
+                                    }) if key.as_ref() == b"ref" => {
+                                        resolve_merge_cell(value, merge_cells)?
+                                    }
+                                    Err(e) => {
+                                        return Err(XlsxError::Xml(quick_xml::Error::InvalidAttr(
+                                            e,
+                                        )))
+                                    }
+                                    _ => {} // ignore other attributes
+                                }
+                            }
+                        }
+                    }
+                    Event::End(ref e) => {
+                        if e.local_name().as_ref().eq(b"mergeCells") {
+                            break;
+                        }
+                    }
+                    _ => (),
+                },
+                Err(e) => return Err(XlsxError::Xml(e)),
+            }
+        }
+
+        Ok(())
     }
 }
 

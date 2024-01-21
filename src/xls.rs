@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::min;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
@@ -18,7 +18,7 @@ use crate::utils::read_usize;
 use crate::utils::{push_column, read_f64, read_i16, read_i32, read_u16, read_u32};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible,
+    Cell, CellErrorType, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, MergeCell, SheetInfo,
 };
 
 #[derive(Debug)]
@@ -148,6 +148,7 @@ pub struct Xls<RS> {
     marker: PhantomData<RS>,
     options: XlsOptions,
     formats: Vec<CellFormat>,
+    merged_cells: HashMap<String, Vec<MergeCell>>,
     is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
@@ -194,6 +195,7 @@ impl<RS: Read + Seek> Xls<RS> {
             marker: PhantomData,
             metadata: Metadata::default(),
             options,
+	    merged_cells: HashMap::new(),
             is_1904: false,
             formats: Vec::new(),
             #[cfg(feature = "picture")]
@@ -224,19 +226,19 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
         &self.metadata
     }
 
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), XlsError> {
         self.sheets
             .get(name)
-            .map(|r| r.0.clone())
+            .map(|r| (r.0.clone(), SheetInfo {merged_cells: self.merged_cells.get(name).map_or(vec![], |mc| mc.to_vec()) }))
             .ok_or_else(|| XlsError::WorksheetNotFound(name.into()))
     }
 
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>, SheetInfo)> {
         self.sheet_order
             .iter()
             .map(|name| (name, self.sheets.get(name)))
             .filter(|(_, sheet)| sheet.is_some())
-            .map(|(name, data)| (name.clone(), data.unwrap().0.clone()))
+            .map(|(name, data)| (name.clone(), data.unwrap().0.clone(), SheetInfo {merged_cells: self.merged_cells.get(name).map_or(vec![], |mc| mc.to_vec())}))
             .collect()
     }
 
@@ -384,6 +386,7 @@ impl<RS: Read + Seek> Xls<RS> {
         debug!("defined_names: {:?}", defined_names);
 
         let mut sheets = BTreeMap::new();
+	let merge_cells = &mut self.merged_cells;
         let fmla_sheet_names = sheet_names
             .iter()
             .map(|(_, n)| n.clone())
@@ -393,6 +396,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let records = RecordIter { stream: sh };
             let mut cells = Vec::new();
             let mut formulas = Vec::new();
+	    let mut sheet_mcells = Vec::new();
             let mut fmla_pos = (0, 0);
             for record in records {
                 let r = record?;
@@ -451,13 +455,17 @@ impl<RS: Read + Seek> Xls<RS> {
                         });
                         formulas.push(Cell::new(fmla_pos, fmla));
                     }
+		    0xE5 => {
+			sheet_mcells.append(&mut parse_merge_cells(r.data));
+		    }
                     _ => (),
                 }
             }
             let range = Range::from_sparse(cells);
             let formula = Range::from_sparse(formulas);
             self.sheet_order.push(name.clone());
-            sheets.insert(name, (range, formula));
+            sheets.insert(name.clone(), (range, formula));
+	    merge_cells.insert(name, sheet_mcells);
         }
 
         self.sheets = sheets;
@@ -491,6 +499,23 @@ enum Biff {
     Biff8,
     // Used by MS-XLSB Workbook(2.1.7.61) or Worksheet(2.1.7.61) which are not supported yet.
     // Biff12,
+}
+
+fn parse_merge_cells(mut data: &[u8]) -> Vec<MergeCell> {
+    let mut merge_cells = Vec::new();
+    let mut count = read_u16(data);
+    data = &data[2..];
+    while count > 0 {
+        merge_cells.push(MergeCell {
+            rw_first: read_u16(data).into(),
+            rw_last: read_u16(&data[2..]).into(),
+            col_first: read_u16(&data[4..]).into(),
+            col_last: read_u16(&data[6..]).into(),
+        });
+        data = &data[8..];
+        count -= 1;
+    }
+    merge_cells
 }
 
 /// BOF [MS-XLS] 2.4.21

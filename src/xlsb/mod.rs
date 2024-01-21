@@ -21,7 +21,7 @@ use crate::datatype::DataTypeRef;
 use crate::formats::{builtin_format_by_code, detect_custom_number_format, CellFormat};
 use crate::utils::{push_column, read_f64, read_i32, read_u16, read_u32, read_usize};
 use crate::vba::VbaProject;
-use crate::{Cell, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible};
+use crate::{Cell, DataType, Metadata, Range, Reader, Sheet, SheetType, SheetVisible, SheetInfo};
 
 /// A Xlsb specific error
 #[derive(Debug)]
@@ -470,7 +470,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheet_range(&mut self, name: &str) -> Result<Range<DataType>, XlsbError> {
+    fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), XlsbError> {
         let mut cells_reader = self.worksheet_cells_reader(name)?;
         let mut cells = Vec::with_capacity(cells_reader.dimensions().len().min(1_000_000) as _);
         while let Some(cell) = cells_reader.next_cell()? {
@@ -478,7 +478,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
                 cells.push(Cell::new(cell.pos, DataType::from(cell.val)));
             }
         }
-        Ok(Range::from_sparse(cells))
+        Ok((Range::from_sparse(cells), SheetInfo::default()))
     }
 
     /// MS-XLSB 2.1.7.62
@@ -494,7 +494,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     }
 
     /// MS-XLSB 2.1.7.62
-    fn worksheets(&mut self) -> Vec<(String, Range<DataType>)> {
+    fn worksheets(&mut self) -> Vec<(String, Range<DataType>, SheetInfo)> {
         let sheets = self
             .sheets
             .iter()
@@ -503,8 +503,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
         sheets
             .into_iter()
             .filter_map(|name| {
-                let ws = self.worksheet_range(&name).ok()?;
-                Some((name, ws))
+                let (ws, sheet_info) = self.worksheet_range(&name).ok()?;
+                Some((name, ws, sheet_info))
             })
             .collect()
     }
@@ -513,6 +513,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
     }
+
 }
 
 pub(crate) struct RecordIter<'a> {
