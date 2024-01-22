@@ -377,6 +377,18 @@ pub struct SheetInfo {
     pub hidden_columns: HashSet<u32>,
 }
 
+impl SheetInfo {
+    /// return vector of merged cells
+    pub fn merged_cells(&self) -> &[MergeCell] {
+	&self.merged_cells
+    }
+
+    /// return hidden columns
+    pub fn hidden_columns(&self) -> &HashSet<u32> {
+	&self.hidden_columns
+    }
+}
+
 impl<T: CellType> Range<T> {
     /// Creates a new non-empty `Range`
     ///
