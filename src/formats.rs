@@ -11,6 +11,7 @@ pub enum CellFormat {
     BuiltIn1,
 }
 
+
 /// Check excel number format is datetime
 pub fn detect_custom_number_format(format: &str) -> CellFormat {
     let mut escaped = false;
@@ -119,7 +120,7 @@ pub fn format_excel_f64_ref<'a>(
             value
         }),
         Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
-	Some(CellFormat::BuiltIn1) => DataTypeRef::Int(value.floor() as i64),
+	Some(CellFormat::BuiltIn1) => DataTypeRef::Int(value.round() as i64),
         _ => DataTypeRef::Float(value),
     }
 }
