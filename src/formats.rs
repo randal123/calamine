@@ -8,6 +8,7 @@ pub enum CellFormat {
     Other,
     DateTime,
     TimeDelta,
+    BuiltIn1,
 }
 
 /// Check excel number format is datetime
@@ -49,6 +50,7 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
 
 pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
     match id {
+	b"1" => CellFormat::BuiltIn1,
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -117,6 +119,7 @@ pub fn format_excel_f64_ref<'a>(
             value
         }),
         Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
+	Some(CellFormat::BuiltIn1) => DataTypeRef::Int(value.floor() as i64),
         _ => DataTypeRef::Float(value),
     }
 }

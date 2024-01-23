@@ -226,7 +226,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                         match builtin_format_by_code(fmt_code) {
                             CellFormat::DateTime => self.formats.push(CellFormat::DateTime),
                             CellFormat::TimeDelta => self.formats.push(CellFormat::TimeDelta),
-                            CellFormat::Other => {
+                            CellFormat::Other | _  => {
                                 self.formats.push(
                                     number_formats
                                         .get(&fmt_code)
