@@ -16,12 +16,12 @@
 //!
 //! // Read whole worksheet data and provide some statistics
 //! if let Ok(range) = workbook.worksheet_range("Sheet1") {
-//!     let total_cells = range.get_size().0 * range.get_size().1;
-//!     let non_empty_cells: usize = range.used_cells().count();
+//!     let total_cells = range.0.get_size().0 * range.0.get_size().1;
+//!     let non_empty_cells: usize = range.0.used_cells().count();
 //!     println!("Found {} cells in 'Sheet1', including {} non empty cells",
 //!              total_cells, non_empty_cells);
 //!     // alternatively, we can manually filter rows
-//!     assert_eq!(non_empty_cells, range.rows()
+//!     assert_eq!(non_empty_cells, range.0.rows()
 //!         .flat_map(|r| r.iter().filter(|&c| c != &DataType::Empty)).count());
 //! }
 //!
@@ -686,7 +686,7 @@ impl<T: CellType> Range<T> {
     /// fn main() -> Result<(), Error> {
     ///     let path = format!("{}/tests/temperature.xlsx", env!("CARGO_MANIFEST_DIR"));
     ///     let mut workbook: Xlsx<_> = open_workbook(path)?;
-    ///     let mut sheet = workbook.worksheet_range("Sheet1")?;
+    ///     let mut sheet = workbook.worksheet_range("Sheet1")?.0;
     ///     let mut iter = sheet.deserialize()?;
     ///
     ///     if let Some(result) = iter.next() {
