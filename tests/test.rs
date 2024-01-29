@@ -136,6 +136,26 @@ fn issue_9() {
 }
 
 #[test]
+fn issue_number_formats() {
+    setup();
+
+    let path = format!("{}/tests/issues_format_numbers.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("issue1").unwrap().0;
+    range_eq!(
+        range,
+        [
+            [String("123456.000000".to_string())],
+            [String("$20234.00".to_string())],
+	    [String("₭543234.00".to_string())],
+            [String("123.000".to_string())],
+	    [Float(234.23)],
+        ]
+    );
+}
+
+#[test]
 fn vba() {
     setup();
 

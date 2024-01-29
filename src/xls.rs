@@ -382,7 +382,7 @@ impl<RS: Read + Seek> Xls<RS> {
         self.formats = xfs
             .into_iter()
             .map(|fmt| match formats.get(&fmt) {
-                Some(s) => *s,
+                Some(s) => s.clone(),
                 _ => builtin_format_by_code(fmt),
             })
             .collect();

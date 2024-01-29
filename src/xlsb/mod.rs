@@ -230,7 +230,7 @@ impl<RS: Read + Seek> Xlsb<RS> {
                                 self.formats.push(
                                     number_formats
                                         .get(&fmt_code)
-                                        .copied()
+                                        .cloned()
                                         .unwrap_or(CellFormat::Other),
                                 );
                             }
