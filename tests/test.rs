@@ -151,6 +151,7 @@ fn issue_number_formats() {
 	    [String("₭543234.00".to_string())],
             [String("123.000".to_string())],
 	    [Float(234.23)],
+	    [String("£ 0.01".to_string())],
         ]
     );
 }
