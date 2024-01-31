@@ -1,7 +1,55 @@
-use crate::{datatype::DataTypeRef, custom_format::maybe_custom_format, DataType};
+use std::{collections::HashMap, sync::OnceLock};
+
+use crate::{custom_format::maybe_custom_format, datatype::DataTypeRef, DataType};
 
 /// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
 static EXCEL_1900_1904_DIFF: i64 = 1462;
+
+fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
+    static INSTANCE: OnceLock<HashMap<usize, CellFormat>> = OnceLock::new();
+
+    INSTANCE.get_or_init(|| {
+        let mut hash = HashMap::new();
+        hash.insert(
+            2,
+            CellFormat::NumberFormat {
+                nformats: vec![NFormat {
+                    prefix: Some("Y".to_owned()),
+                    suffix: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        significant_digits: 0,
+                        insignificant_zeros: 2,
+                        p_significant_digits: 0,
+                        p_insignificant_zeros: 1,
+                    })),
+                }],
+            },
+        );
+	hash.insert(
+            4,
+            CellFormat::NumberFormat {
+                nformats: vec![NFormat {
+                    prefix: Some("Y".to_owned()),
+                    suffix: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        significant_digits: 0,
+                        insignificant_zeros: 2,
+                        p_significant_digits: 0,
+                        p_insignificant_zeros: 1,
+                    })),
+                }],
+            },
+        );
+	hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
+
+        hash
+    })
+}
+
+
+fn get_built_in_format(id: usize) -> Option<CellFormat> {
+    get_builtin_formats().get(&id).map_or(None, |f| Some(f.clone()))
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FFormat {
@@ -115,19 +163,11 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
 pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
     match id {
 	// '#,##0.00' and '0.00'
-	b"2" | b"4" => CellFormat::NumberFormat{
-	    nformats: vec![NFormat {
-                    prefix: Some("Y".to_owned()),
-                    suffix: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        significant_digits: 0,
-                        insignificant_zeros: 2,
-                        p_significant_digits: 0,
-                        p_insignificant_zeros: 1
-                    }))
-            }]},
+	b"2" => get_built_in_format(2).unwrap_or(CellFormat::Other),
+	b"4" => get_built_in_format(4).unwrap_or(CellFormat::Other),
 	// '0'
 	b"1" => CellFormat::BuiltIn1,
+	// b"1" => get_built_in_format(1).unwrap_or(CellFormat::Other),
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -153,7 +193,7 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
         // [h]:mm:ss
         b"46" => CellFormat::TimeDelta,
         _ => CellFormat::Other
-}
+    }
 }
 
 /// Check if code corresponds to builtin date format
@@ -182,13 +222,33 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
     }
 }
 
-
+// FIXME, see when it's zero or positive or negative
 fn format_custom_format_fcell(value: f64, nformats: &[NFormat]) -> DataTypeRef<'static> {
-    let first = &nformats[0];
+    let mut value = value;
+    let format = if value > 0.0 {
+	if let Some(f) = nformats.get(0) {
+	    f
+	} else {
+	    return DataTypeRef::Float(value);
+	}
+    } else if value < 0.0 {
+	if let Some(f) = nformats.get(1) {
+	    value = value.abs();
+	    f
+	} else {
+	    return DataTypeRef::Float(value);
+	}
+    } else {
+	if let Some(f) = nformats.get(2) {
+	    f
+	} else {
+	    return DataTypeRef::Float(value);
+	}
+    };
 
-    let suffix = first.suffix.as_deref();
-    let preffix = first.prefix.as_deref();
-    let vformat = first.value_format.as_ref();
+    let suffix = format.suffix.as_deref();
+    let preffix = format.prefix.as_deref();
+    let vformat = format.value_format.as_ref();
 
     let value = if let Some(vformat) = vformat {
         match vformat {
@@ -289,27 +349,29 @@ fn test_is_date_format() {
     );
     assert_eq!(
         detect_custom_number_format("0_ ;[Red]\\-0\\ "),
-	CellFormat::NumberFormat {
-            nformats: vec![NFormat {
-                prefix: Some("".to_owned()),
-                suffix: Some("".to_owned()),
-                value_format: Some(ValueFormat::Number(FFormat {
-                    significant_digits: 0,
-                    insignificant_zeros: 0,
-                    p_significant_digits: 0,
-                    p_insignificant_zeros: 1
-                }))
-            },
-	    NFormat {
-                prefix: Some("-".to_owned()),
-                suffix: Some(" ".to_owned()),
-                value_format: Some(ValueFormat::Number(FFormat {
-                    significant_digits: 0,
-                    insignificant_zeros: 0,
-                    p_significant_digits: 0,
-                    p_insignificant_zeros: 1
-                }))
-            }]
+        CellFormat::NumberFormat {
+            nformats: vec![
+                NFormat {
+                    prefix: Some("".to_owned()),
+                    suffix: Some("".to_owned()),
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        significant_digits: 0,
+                        insignificant_zeros: 0,
+                        p_significant_digits: 0,
+                        p_insignificant_zeros: 1
+                    }))
+                },
+                NFormat {
+                    prefix: Some("-".to_owned()),
+                    suffix: Some(" ".to_owned()),
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        significant_digits: 0,
+                        insignificant_zeros: 0,
+                        p_significant_digits: 0,
+                        p_insignificant_zeros: 1
+                    }))
+                }
+            ]
         }
     );
     // assert_eq!(detect_custom_number_format("\\Y000000"), CellFormat::Other);

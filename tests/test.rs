@@ -152,6 +152,12 @@ fn issue_number_formats() {
             [String("123.000".to_string())],
 	    [Float(234.23)],
 	    [String("£ 0.01".to_string())],
+	    [String("123 RSD".to_string())],
+	    [String("-235 RSD".to_string())],
+	    // FIXME, this should be 1.234,0000 RSD
+	    [String("1234.0000 RSD".to_string())],
+	    // this should be $5.445,00
+	    [String("$5445.00".to_string())],
         ]
     );
 }
