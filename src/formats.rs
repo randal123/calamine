@@ -14,7 +14,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
             2,
             CellFormat::NumberFormat {
                 nformats: vec![NFormat {
-                    prefix: Some("Y".to_owned()),
+                    prefix: Some("".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         significant_digits: 0,
@@ -25,11 +25,11 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                 }],
             },
         );
-	hash.insert(
+        hash.insert(
             4,
             CellFormat::NumberFormat {
                 nformats: vec![NFormat {
-                    prefix: Some("Y".to_owned()),
+                    prefix: Some("".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         significant_digits: 0,
@@ -40,15 +40,16 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                 }],
             },
         );
-	hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
+        hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
 
         hash
     })
 }
 
-
 fn get_built_in_format(id: usize) -> Option<CellFormat> {
-    get_builtin_formats().get(&id).map_or(None, |f| Some(f.clone()))
+    get_builtin_formats()
+        .get(&id)
+        .map_or(None, |f| Some(f.clone()))
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -166,8 +167,8 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
 	b"2" => get_built_in_format(2).unwrap_or(CellFormat::Other),
 	b"4" => get_built_in_format(4).unwrap_or(CellFormat::Other),
 	// '0'
-	b"1" => CellFormat::BuiltIn1,
-	// b"1" => get_built_in_format(1).unwrap_or(CellFormat::Other),
+	// b"1" => CellFormat::BuiltIn1,
+	b"1" => get_built_in_format(1).unwrap_or(CellFormat::Other),
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -222,37 +223,43 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
     }
 }
 
-// FIXME, see when it's zero or positive or negative
 fn format_custom_format_fcell(value: f64, nformats: &[NFormat]) -> DataTypeRef<'static> {
+    fn excell_round(value: f64, dp: i32) -> String {
+        let v = 10f64.powi(dp);
+        let value = (value * v).round() / v;
+        format!("{:.*}", dp as usize, value)
+    }
+
     let mut value = value;
     let format = if value > 0.0 {
-	if let Some(f) = nformats.get(0) {
-	    f
-	} else {
-	    return DataTypeRef::Float(value);
-	}
+        if let Some(f) = nformats.get(0) {
+            f
+        } else {
+            return DataTypeRef::Float(value);
+        }
     } else if value < 0.0 {
-	if let Some(f) = nformats.get(1) {
-	    value = value.abs();
-	    f
-	} else {
-	    return DataTypeRef::Float(value);
-	}
+        if let Some(f) = nformats.get(1) {
+            value = value.abs();
+            f
+        } else {
+            return DataTypeRef::Float(value);
+        }
     } else {
-	if let Some(f) = nformats.get(2) {
-	    f
-	} else {
-	    return DataTypeRef::Float(value);
-	}
+        if let Some(f) = nformats.get(2) {
+            f
+        } else {
+            return DataTypeRef::Float(value);
+        }
     };
 
     let suffix = format.suffix.as_deref();
     let preffix = format.prefix.as_deref();
     let vformat = format.value_format.as_ref();
 
+    // FIXME, format!() is using round_ties_even() not round()
     let value = if let Some(vformat) = vformat {
         match vformat {
-            ValueFormat::Number(ff) => format!("{:.*}", ff.insignificant_zeros, value),
+            ValueFormat::Number(ff) => excell_round(value, ff.insignificant_zeros as i32),
             ValueFormat::Text => value.to_string(),
         }
     } else {

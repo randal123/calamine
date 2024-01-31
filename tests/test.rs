@@ -158,6 +158,7 @@ fn issue_number_formats() {
 	    [String("1234.0000 RSD".to_string())],
 	    // this should be $5.445,00
 	    [String("$5445.00".to_string())],
+	    [String("1.00".to_string())],
         ]
     );
 }
