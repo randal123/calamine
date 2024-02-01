@@ -13,7 +13,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
         hash.insert(
             2,
             CellFormat::NumberFormat {
-                nformats: vec![NFormat {
+                nformats: vec![Some(NFormat {
                     prefix: Some("".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
@@ -22,13 +22,13 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                         p_significant_digits: 0,
                         p_insignificant_zeros: 1,
                     })),
-                }],
+                })],
             },
         );
         hash.insert(
             4,
             CellFormat::NumberFormat {
-                nformats: vec![NFormat {
+                nformats: vec![Some(NFormat {
                     prefix: Some("".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
@@ -37,11 +37,15 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                         p_significant_digits: 0,
                         p_insignificant_zeros: 1,
                     })),
-                }],
+                })],
             },
         );
         hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
-
+	hash.insert(37, maybe_custom_format("#.##0\\ ;#.##0").unwrap_or(CellFormat::Other));
+	hash.insert(38, maybe_custom_format("#,##0 ;[Red]#,##0").unwrap_or(CellFormat::Other));
+	hash.insert(39, maybe_custom_format("#,##0.00#,##0.00").unwrap_or(CellFormat::Other));
+	hash.insert(40, maybe_custom_format("#,##0.00;[Red]#,##0.00").unwrap_or(CellFormat::Other));
+	
         hash
     })
 }
@@ -105,12 +109,18 @@ impl NFormat {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct DTFormat {
+    pub format: String,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum CellFormat {
     Other,
     DateTime,
     TimeDelta,
     BuiltIn1,
-    NumberFormat { nformats: Vec<NFormat> },
+    NumberFormat { nformats: Vec<Option<NFormat>> },
+    CustomDateTimeFormat (DTFormat),
 }
 
 /// Check excel number format is datetime
@@ -163,12 +173,17 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
 
 pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
     match id {
-	// '#,##0.00' and '0.00'
-	b"2" => get_built_in_format(2).unwrap_or(CellFormat::Other),
-	b"4" => get_built_in_format(4).unwrap_or(CellFormat::Other),
 	// '0'
 	// b"1" => CellFormat::BuiltIn1,
 	b"1" => get_built_in_format(1).unwrap_or(CellFormat::Other),
+	// '#,##0.00' and '0.00'
+	b"2" => get_built_in_format(2).unwrap_or(CellFormat::Other),
+	b"4" => get_built_in_format(4).unwrap_or(CellFormat::Other),
+	b"9" => todo!(),
+	b"10" => todo!(),
+	b"37" => get_built_in_format(37).unwrap_or(CellFormat::Other),
+	    
+	
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -223,7 +238,8 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
     }
 }
 
-fn format_custom_format_fcell(value: f64, nformats: &[NFormat]) -> DataTypeRef<'static> {
+fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
+    // FIXME, dp limit ??
     fn excell_round(value: f64, dp: i32) -> String {
         let v = 10f64.powi(dp);
         let value = (value * v).round() / v;
@@ -231,6 +247,7 @@ fn format_custom_format_fcell(value: f64, nformats: &[NFormat]) -> DataTypeRef<'
     }
 
     let mut value = value;
+
     let format = if value > 0.0 {
         if let Some(f) = nformats.get(0) {
             f
@@ -242,21 +259,29 @@ fn format_custom_format_fcell(value: f64, nformats: &[NFormat]) -> DataTypeRef<'
             value = value.abs();
             f
         } else {
-            return DataTypeRef::Float(value);
+            if let Some(f) = nformats.get(0) {
+                f
+            } else {
+                return DataTypeRef::Float(value);
+            }
         }
     } else {
         if let Some(f) = nformats.get(2) {
             f
         } else {
-            return DataTypeRef::Float(value);
+            if let Some(f) = nformats.get(0) {
+                f
+            } else {
+                return DataTypeRef::Float(value);
+            }
         }
     };
+    
+    
+    let suffix = format.as_ref().map_or("", |ref f| f.suffix.as_deref().unwrap_or(""));
+    let preffix = format.as_ref().map_or("", |ref f| f.prefix.as_deref().unwrap_or(""));
+    let vformat = format.as_ref().map_or(None, |vf| vf.value_format.as_ref());
 
-    let suffix = format.suffix.as_deref();
-    let preffix = format.prefix.as_deref();
-    let vformat = format.value_format.as_ref();
-
-    // FIXME, format!() is using round_ties_even() not round()
     let value = if let Some(vformat) = vformat {
         match vformat {
             ValueFormat::Number(ff) => excell_round(value, ff.insignificant_zeros as i32),
@@ -268,9 +293,9 @@ fn format_custom_format_fcell(value: f64, nformats: &[NFormat]) -> DataTypeRef<'
 
     DataTypeRef::String(format!(
         "{}{}{}",
-        preffix.unwrap_or(""),
+        preffix,
         value,
-        suffix.unwrap_or("")
+        suffix
     ))
 }
 
@@ -318,7 +343,7 @@ fn test_is_date_format() {
     assert_eq!(
         detect_custom_number_format("[$&#xA3;-809]#,##0.0000"),
         CellFormat::NumberFormat {
-            nformats: vec![NFormat {
+            nformats: vec![Some(NFormat {
                 prefix: Some("£".to_owned()),
                 suffix: None,
                 value_format: Some(ValueFormat::Number(FFormat {
@@ -327,7 +352,7 @@ fn test_is_date_format() {
                     p_significant_digits: 3,
                     p_insignificant_zeros: 1
                 }))
-            }]
+            })]
         }
     );
     assert_eq!(
@@ -358,7 +383,7 @@ fn test_is_date_format() {
         detect_custom_number_format("0_ ;[Red]\\-0\\ "),
         CellFormat::NumberFormat {
             nformats: vec![
-                NFormat {
+                Some(NFormat {
                     prefix: Some("".to_owned()),
                     suffix: Some("".to_owned()),
                     value_format: Some(ValueFormat::Number(FFormat {
@@ -367,8 +392,8 @@ fn test_is_date_format() {
                         p_significant_digits: 0,
                         p_insignificant_zeros: 1
                     }))
-                },
-                NFormat {
+                }),
+                Some(NFormat {
                     prefix: Some("-".to_owned()),
                     suffix: Some(" ".to_owned()),
                     value_format: Some(ValueFormat::Number(FFormat {
@@ -377,7 +402,7 @@ fn test_is_date_format() {
                         p_significant_digits: 0,
                         p_insignificant_zeros: 1
                     }))
-                }
+                })
             ]
         }
     );
@@ -385,7 +410,7 @@ fn test_is_date_format() {
     assert_eq!(
         detect_custom_number_format("\\Y000000"),
         CellFormat::NumberFormat {
-            nformats: vec![NFormat {
+            nformats: vec![Some(NFormat {
                 prefix: Some("Y".to_owned()),
                 suffix: None,
                 value_format: Some(ValueFormat::Number(FFormat {
@@ -394,7 +419,7 @@ fn test_is_date_format() {
                     p_significant_digits: 0,
                     p_insignificant_zeros: 6
                 }))
-            }]
+            })]
         }
     );
     assert_eq!(

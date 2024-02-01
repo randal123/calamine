@@ -293,7 +293,7 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
 
     let fmt: Vec<char> = format.chars().collect();
 
-    let mut nformats: Vec<NFormat> = Vec::new();
+    let mut nformats: Vec<Option<NFormat>> = Vec::new();
 
     let mut start = 0;
 
@@ -308,13 +308,13 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
                         if let Some(ch) = fmt.get(start + off_1 + off_2) {
                             // next format
                             if ch.eq(&';') {
-                                nformats.push(NFormat::new(prefix, None, fformat));
+                                nformats.push(Some(NFormat::new(prefix, None, fformat)));
                                 start = start + off_1 + off_2 + 1;
                                 continue;
                             } else {
                                 match maybe_get_pre_su_fix(&fmt[start + off_1 + off_2..]) {
                                     Ok((suffix, off_3)) => {
-                                        nformats.push(NFormat::new(prefix, suffix, fformat));
+                                        nformats.push(Some(NFormat::new(prefix, suffix, fformat)));
                                         if let Some(ch) = fmt.get(start + off_1 + off_2 + off_3) {
                                             if ch.eq(&';') {
                                                 start = start + off_1 + off_2 + off_3 + 1;
@@ -330,7 +330,7 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
                                 }
                             }
                         } else {
-                            nformats.push(NFormat::new(prefix, None, fformat));
+                            nformats.push(Some(NFormat::new(prefix, None, fformat)));
                             break;
                         }
                     }
