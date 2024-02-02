@@ -63,6 +63,7 @@ mod utils;
 mod auto;
 mod cfb;
 mod datatype;
+mod locales;
 mod custom_format;
 mod formats;
 mod ods;

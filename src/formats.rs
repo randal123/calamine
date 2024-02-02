@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::OnceLock};
 
+use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
+
 use crate::{custom_format::maybe_custom_format, datatype::DataTypeRef, DataType};
 
 /// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
@@ -41,11 +43,23 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
             },
         );
         hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
-	hash.insert(37, maybe_custom_format("#.##0\\ ;#.##0").unwrap_or(CellFormat::Other));
-	hash.insert(38, maybe_custom_format("#,##0 ;[Red]#,##0").unwrap_or(CellFormat::Other));
-	hash.insert(39, maybe_custom_format("#,##0.00#,##0.00").unwrap_or(CellFormat::Other));
-	hash.insert(40, maybe_custom_format("#,##0.00;[Red]#,##0.00").unwrap_or(CellFormat::Other));
-	
+        hash.insert(
+            37,
+            maybe_custom_format("#.##0\\ ;#.##0").unwrap_or(CellFormat::Other),
+        );
+        hash.insert(
+            38,
+            maybe_custom_format("#,##0 ;[Red]#,##0").unwrap_or(CellFormat::Other),
+        );
+        hash.insert(
+            39,
+            maybe_custom_format("#,##0.00#,##0.00").unwrap_or(CellFormat::Other),
+        );
+        hash.insert(
+            40,
+            maybe_custom_format("#,##0.00;[Red]#,##0.00").unwrap_or(CellFormat::Other),
+        );
+
         hash
     })
 }
@@ -110,7 +124,10 @@ impl NFormat {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DTFormat {
+    pub locale: Option<usize>,
+    pub prefix: Option<String>,
     pub format: String,
+    pub suffix: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -120,7 +137,7 @@ pub enum CellFormat {
     TimeDelta,
     BuiltIn1,
     NumberFormat { nformats: Vec<Option<NFormat>> },
-    CustomDateTimeFormat (DTFormat),
+    CustomDateTimeFormat(DTFormat),
 }
 
 /// Check excel number format is datetime
@@ -182,8 +199,6 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
 	b"9" => todo!(),
 	b"10" => todo!(),
 	b"37" => get_built_in_format(37).unwrap_or(CellFormat::Other),
-	    
-	
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -238,6 +253,28 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
     }
 }
 
+fn format_excell_date_time(f: f64, format: &str) -> Option<String> {
+    if f > 0.0 {
+        let Some(start) = NaiveDate::from_ymd_opt(1900, 1, 1) else {
+            return None;
+        };
+        let secs = 86400.0 * (f - f.floor());
+        let days = f as i64;
+        let Some(date) = start.checked_add_signed(chrono::Duration::days(days)) else {
+            return None;
+        };
+        let Some(time) = NaiveTime::from_num_seconds_from_midnight_opt(secs as u32, 0) else {
+            return None;
+        };
+
+        let ndt = NaiveDateTime::new(date, time);
+
+        let fmt = StrftimeItems::new(format);
+        return Some(ndt.format_with_items(fmt).to_string());
+    }
+    None
+}
+
 fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
     // FIXME, dp limit ??
     fn excell_round(value: f64, dp: i32) -> String {
@@ -276,10 +313,13 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
             }
         }
     };
-    
-    
-    let suffix = format.as_ref().map_or("", |ref f| f.suffix.as_deref().unwrap_or(""));
-    let preffix = format.as_ref().map_or("", |ref f| f.prefix.as_deref().unwrap_or(""));
+
+    let suffix = format
+        .as_ref()
+        .map_or("", |ref f| f.suffix.as_deref().unwrap_or(""));
+    let preffix = format
+        .as_ref()
+        .map_or("", |ref f| f.prefix.as_deref().unwrap_or(""));
     let vformat = format.as_ref().map_or(None, |vf| vf.value_format.as_ref());
 
     let value = if let Some(vformat) = vformat {
@@ -291,12 +331,7 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
         "".to_owned()
     };
 
-    DataTypeRef::String(format!(
-        "{}{}{}",
-        preffix,
-        value,
-        suffix
-    ))
+    DataTypeRef::String(format!("{}{}{}", preffix, value, suffix))
 }
 
 // convert f64 to date, if format == Date
@@ -353,6 +388,24 @@ fn test_is_date_format() {
                     p_insignificant_zeros: 1
                 }))
             })]
+        }
+    );
+    assert_eq!(
+        detect_custom_number_format("[$&#xA3;-809]#,##0.0000;;"),
+        CellFormat::NumberFormat {
+            nformats: vec![
+                Some(NFormat {
+                    prefix: Some("£".to_owned()),
+                    suffix: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        significant_digits: 0,
+                        insignificant_zeros: 4,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1
+                    }))
+                }),
+                None
+            ]
         }
     );
     assert_eq!(

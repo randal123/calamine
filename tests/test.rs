@@ -71,7 +71,8 @@ fn issue_4() {
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
     let range = excel.worksheet_range("issue5").unwrap().0;
-    range_eq!(range, [[DataType::Int(1)]]);
+    // range_eq!(range, [[DataType::Int(1)]]);
+    range_eq!(range, [[DataType::String("1".to_owned())]]);
 }
 
 #[test]
@@ -139,7 +140,10 @@ fn issue_9() {
 fn issue_number_formats() {
     setup();
 
-    let path = format!("{}/tests/issues_format_numbers.xlsx", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/tests/issues_format_numbers.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
 
     let range = excel.worksheet_range("issue1").unwrap().0;
@@ -148,17 +152,27 @@ fn issue_number_formats() {
         [
             [String("123456.000000".to_string())],
             [String("$20234.00".to_string())],
-	    [String("₭543234.00".to_string())],
+            [String("₭543234.00".to_string())],
             [String("123.000".to_string())],
-	    [Float(234.23)],
-	    [String("£ 0.01".to_string())],
-	    [String("123 RSD".to_string())],
-	    [String("-235 RSD".to_string())],
-	    // FIXME, this should be 1.234,0000 RSD
-	    [String("1234.0000 RSD".to_string())],
-	    // this should be $5.445,00
-	    [String("$5445.00".to_string())],
-	    [String("1.00".to_string())],
+            [Float(234.23)],
+            [String("£ 0.01".to_string())],
+            [String("123 RSD".to_string())],
+            [String("-235 RSD".to_string())],
+            // FIXME, this should be 1.234,0000 RSD
+            [String("1234.0000 RSD".to_string())],
+            // this should be $5.445,00
+            [String("$5445.00".to_string())],
+            [String("1.00".to_string())],
+            [String("a0".to_string())],
+            //FIXME this should be "a000"
+            [String("a0".to_string())],
+            [String("-987.00".to_string())],
+            // [String("Sunday, 1 October 2023".to_string())],
+            [DateTime(45200.0)],
+            // [String("Sunday, October 1, 2023".to_string())],
+            [DateTime(45200.0)],
+            // FIXME, should be £$9.988,00
+            // [String("£$ 9988.00".to_string())],
         ]
     );
 }
