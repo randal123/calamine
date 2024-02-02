@@ -22,7 +22,7 @@ once_cell = { version = "1.18", optional = true }
 serde = "1.0"
 quick-xml = { version = "0.31", features = ["encoding"] }
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
-chrono = { version = "0.4", features = ["serde"]}
+chrono = { version = "0.4", features = ["serde", "unstable-locales"]}
 pure-rust-locales = "0.7.0"
 
 [dev-dependencies]

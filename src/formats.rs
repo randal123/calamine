@@ -1,8 +1,14 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
+use pure_rust_locales::Locale;
 
-use crate::{custom_format::maybe_custom_format, datatype::DataTypeRef, DataType};
+use crate::{
+    custom_format::{maybe_custom_date_format, maybe_custom_format},
+    datatype::DataTypeRef,
+    locales::get_locale_symbols,
+    DataType,
+};
 
 /// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
 static EXCEL_1900_1904_DIFF: i64 = 1462;
@@ -253,14 +259,14 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
     }
 }
 
-fn format_excell_date_time(f: f64, format: &str) -> Option<String> {
+pub fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> Option<String> {
     if f > 0.0 {
         let Some(start) = NaiveDate::from_ymd_opt(1900, 1, 1) else {
             return None;
         };
         let secs = 86400.0 * (f - f.floor());
         let days = f as i64;
-        let Some(date) = start.checked_add_signed(chrono::Duration::days(days)) else {
+        let Some(date) = start.checked_add_signed(chrono::Duration::days(days - 2)) else {
             return None;
         };
         let Some(time) = NaiveTime::from_num_seconds_from_midnight_opt(secs as u32, 0) else {
@@ -270,7 +276,18 @@ fn format_excell_date_time(f: f64, format: &str) -> Option<String> {
         let ndt = NaiveDateTime::new(date, time);
 
         let fmt = StrftimeItems::new(format);
-        return Some(ndt.format_with_items(fmt).to_string());
+        if let Some(locale) = locale {
+            if let Some((_, ls)) = get_locale_symbols(locale) {
+                if let Ok(locale) = TryFrom::<&str>::try_from(*ls) {
+                    return Some(
+                        NaiveDate::from(ndt)
+                            .format_localized_with_items(fmt, locale)
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        return Some(NaiveDate::from(ndt).format_with_items(fmt).to_string());
     }
     None
 }
@@ -515,4 +532,33 @@ fn test_is_date_format() {
         detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
         CellFormat::Other
     );
+
+    // assert_eq!(format_excell_date_time(40909.4166666667, "%A, %-d %B, %Y" , Some(0x0409)),
+    // 	       Some("Tuesday, 3 January, 2012".to_owned()));
+
+    // assert_eq!(format_excell_date_time(40909.4166666667, "%A, %-d %B, %Y" , Some(0x0407)),
+    // 	       Some("Tuesday, 3 January, 2012".to_owned()));
+
+    // assert_eq!({
+    // 	let format = maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@");
+    // 	format_excell_date_time(40909.4166666667, &maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@").as_ref().unwrap().format , Some(0x0407))},
+    // 	       Some("Tuesday, 3 January, 2012".to_owned()));
+}
+
+#[test]
+fn test_date_format_processing_china() {
+    let format = maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+        Some("星期五, 20 一月, 2023".to_owned()),
+    )
+}
+
+#[test]
+fn test_date_format_processing_de() {
+    let format = maybe_custom_date_format("[$-407]mmmm\\ yy;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+        Some("Januar 23".to_owned()),
+    )
 }
