@@ -72,8 +72,6 @@ fn read_locale(fmt: &[char]) -> Option<(usize, usize)> {
         for i in (0..end_index).rev() {
             let c = fmt[i];
 
-            println!("c: {}", c);
-
             let Ok(v) = TryInto::<usize>::try_into(c.to_digit(16).unwrap() << shift) else {
                 return None;
             };
@@ -196,7 +194,7 @@ fn get_prefix_suffix(
                     return Ok((Some(p), locale, index));
                 }
                 // this is when we are parsing date format
-                ('y' | 'm' | 'd' | 'h' | 's', false, false) => {
+                ('y' | 'm' | 'd' | 'h' | 's' | 'a', false, false) => {
                     if date_format {
                         return Ok((Some(p), locale, index));
                     } else {
@@ -239,7 +237,15 @@ fn get_prefix_suffix(
                 (';', false, false) => {
                     return Ok((Some(p), locale, index));
                 }
+                // FIXME, date formats can be like "dd/mm/yyyy;@" replace / with .
                 // unknown character, return Error
+                // ('/', ..) => {
+                //     if date_format {
+                // 	p.push('.');
+                //     } else {
+                // 	return Err(*c);
+                //     }
+                // }
                 (_, ..) => {
                     return Err(*c);
                 }
@@ -410,9 +416,12 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
     ) -> Result<&'static str, char> {
         //https://support.microsoft.com/en-us/office/number-format-codes-5026bbd6-04bc-48cd-bf33-80f18b4eae68
         match (ch, count, am_pm) {
+            // FIXME, 3 should map to "%a"
+            ('a', 3, _) => Ok("%A"),
+            ('a', 4, _) => Ok("%A"),
             ('y', 2, ..) => Ok("%y"),
             ('y', 4, ..) => Ok("%Y"),
-            ('m', 3, ..) => Ok("%B"),
+            ('m', 3, ..) => Ok("%b"),
             ('m', 4, ..) => Ok("%B"), // wrong, should be J-D
             ('d', 1, ..) => Ok("%-d"),
             ('d', 2, ..) => Ok("%d"),
@@ -462,45 +471,6 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
         0
     }
 
-    fn find_am_pm(fmt: &[char]) -> usize {
-        dbg!(fmt);
-        const A_P: [char; 3] = ['A', '/', 'P'];
-        const AM_PM: [char; 5] = ['A', 'M', '/', 'P', 'M'];
-        let mut index = 0;
-        let mut escape = false;
-        loop {
-            if let Some(ch) = fmt.get(index) {
-                match (ch, escape) {
-                    ('\\', ..) => escape = true,
-                    (_, false) => {
-                        if ch.eq(&'A') {
-                            let current_len = fmt[index..].len();
-                            dbg!(current_len);
-                            if current_len < 3 {
-                                return 0;
-                            }
-                            if fmt[index..index + 3].eq(&A_P) {
-                                return index + 3;
-                            }
-
-                            if current_len >= 5 && fmt[index..index + 5].eq(&AM_PM) {
-                                return index + 5;
-                            }
-
-                            return 0;
-                        } else {
-                            return 0;
-                        }
-                    }
-                    (_, true) => (),
-                }
-                index += 1;
-            } else {
-                return 0;
-            }
-        }
-    }
-
     const A_P: [char; 3] = ['A', '/', 'P'];
     const AM_PM: [char; 5] = ['A', 'M', '/', 'P', 'M'];
 
@@ -511,15 +481,11 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
     loop {
         if let Some(ch) = fmt.get(index) {
             match ch {
-                'y' | 'd' | 'h' | 'm' | 's' => {
+                'y' | 'd' | 'h' | 'm' | 's' | 'a' => {
                     let count = collect_same_char(*ch, &fmt[index..]);
                     index += count;
 
-                    // dbg!(*ch, count, is_am_pm);
-                    // dbg!((*ch, count, is_am_pm, months_processed));
-
                     if let Ok(f) = get_strftime_code(*ch, count, false, months_processed) {
-                        dbg!(f);
                         format.push_str(f);
                     } else {
                         return None;
@@ -555,6 +521,9 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
                         return None;
                     }
                 }
+                // built in Date format can be dd/mm/yyyy
+                '/' => format.push('.'),
+                ':' => format.push(':'),
                 _ => return None,
             }
         } else {
@@ -585,6 +554,6 @@ pub fn maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
 
             None
         }
-        Err(_) => None,
+        Err(_c) => None,
     }
 }

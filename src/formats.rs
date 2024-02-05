@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
-use pure_rust_locales::Locale;
+use chrono::{
+    format::StrftimeItems, DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc,
+};
+
+use std::fmt::Write;
 
 use crate::{
     custom_format::{maybe_custom_date_format, maybe_custom_format},
@@ -165,6 +168,10 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
                 if let Some(fp_format) = maybe_custom_format(format) {
                     return fp_format;
                 }
+                if let Some(date_format) = maybe_custom_date_format(format) {
+                    return CellFormat::CustomDateTimeFormat(date_format);
+                }
+
                 // first format only
                 return CellFormat::Other;
             }
@@ -172,9 +179,19 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
             (']', .., 1) if hms => return CellFormat::TimeDelta, // if closing
             (']', ..) => brackets = brackets.saturating_sub(1),
             ('a' | 'A', _, _, false, 0) => ap = true,
-            ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => return CellFormat::DateTime,
+            ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => {
+                if let Some(format) = maybe_custom_date_format(format) {
+                    return CellFormat::CustomDateTimeFormat(format);
+                } else {
+                    return CellFormat::DateTime;
+                }
+            }
             ('d' | 'm' | 'h' | 'y' | 's' | 'D' | 'M' | 'H' | 'Y' | 'S', _, _, false, 0) => {
-                return CellFormat::DateTime
+                if let Some(format) = maybe_custom_date_format(format) {
+                    return CellFormat::CustomDateTimeFormat(format);
+                } else {
+                    return CellFormat::DateTime;
+                }
             }
             _ => {
                 if hms && s.eq_ignore_ascii_case(&prev) {
@@ -259,7 +276,7 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
     }
 }
 
-pub fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> Option<String> {
+fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> Option<String> {
     if f > 0.0 {
         let Some(start) = NaiveDate::from_ymd_opt(1900, 1, 1) else {
             return None;
@@ -275,21 +292,52 @@ pub fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> O
 
         let ndt = NaiveDateTime::new(date, time);
 
+        let dtl = ndt.and_utc();
+
         let fmt = StrftimeItems::new(format);
+
+        let mut formatted_str = String::new();
+
         if let Some(locale) = locale {
             if let Some((_, ls)) = get_locale_symbols(locale) {
                 if let Ok(locale) = TryFrom::<&str>::try_from(*ls) {
-                    return Some(
-                        NaiveDate::from(ndt)
-                            .format_localized_with_items(fmt, locale)
-                            .to_string(),
-                    );
+                    match write!(
+                        formatted_str,
+                        "{}",
+                        dtl.format_localized_with_items(fmt, locale).to_string()
+                    ) {
+                        Ok(_) => {
+                            return Some(formatted_str);
+                        }
+                        Err(_) => return None,
+                    }
                 }
             }
         }
-        return Some(NaiveDate::from(ndt).format_with_items(fmt).to_string());
+        if let Ok(_) = write!(
+            formatted_str,
+            "{}",
+            NaiveDateTime::from(ndt).format_with_items(fmt).to_string()
+        ) {
+            return Some(formatted_str);
+        }
     }
     None
+}
+
+//FIXME, check is_1904 thing
+fn format_custom_date_cell(value: f64, format: &DTFormat, is_1904: bool) -> DataTypeRef<'static> {
+    let value = if is_1904 {
+        value + EXCEL_1900_1904_DIFF as f64
+    } else {
+        value
+    };
+
+    if let Some(s) = format_excell_date_time(value, &format.format, format.locale) {
+        return DataTypeRef::String(s);
+    }
+
+    DataTypeRef::DateTime(value)
 }
 
 fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
@@ -367,6 +415,9 @@ pub fn format_excel_f64_ref<'a>(
         Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
         Some(CellFormat::BuiltIn1) => DataTypeRef::Int(value.round() as i64),
         Some(CellFormat::NumberFormat { nformats }) => format_custom_format_fcell(value, &nformats),
+        Some(CellFormat::CustomDateTimeFormat(format)) => {
+            format_custom_date_cell(value, format, is_1904)
+        }
         _ => DataTypeRef::Float(value),
     }
 }
@@ -384,6 +435,16 @@ fn test_is_date_format() {
         detect_custom_number_format("DD/MM/YY"),
         CellFormat::DateTime
     );
+
+    // assert_eq!(
+    //     detect_custom_number_format("[$-404]aaa;@"),
+    //     CellFormat::CustomDateTimeFormat(DTFormat {
+    //         locale: Some(1028),
+    //         prefix: Some("".to_string()),
+    //         format: "%A".to_string(),
+    //         suffix: Some("".to_string()),
+    //     })
+    // );
     assert_eq!(
         detect_custom_number_format("H:MM:SS;@"),
         CellFormat::DateTime
@@ -560,5 +621,41 @@ fn test_date_format_processing_de() {
     assert_eq!(
         format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
         Some("Januar 23".to_owned()),
+    )
+}
+
+#[test]
+fn test_date_format_processing_built_in() {
+    let format = maybe_custom_date_format("dd/mm/yyyy;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+        Some("20.01.2023".to_owned()),
+    )
+}
+
+// #[test]
+// fn test_date_format_processing_built_in() {
+//     let format = maybe_custom_date_format("[$-409]d/m/yy\ h:mm\\ AM\/PM;@").unwrap();
+//     assert_eq!(
+//         format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+//         Some("20.01.2023".to_owned()),
+//     )
+// }
+
+#[test]
+fn test_date_format_processing_1() {
+    let format = maybe_custom_date_format("[$-407]d/\\ mmm/;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
+        Some("14. Mär.".to_owned()),
+    )
+}
+
+#[test]
+fn test_date_format_processing_2() {
+    let format = maybe_custom_date_format("d/m/yy\\ h:mm;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
+        Some("14.3.22 13:44".to_owned()),
     )
 }
