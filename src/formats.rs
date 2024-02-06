@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::OnceLock};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::OnceLock,
+};
 
 use chrono::{
     format::StrftimeItems, DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc,
@@ -32,6 +35,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                         insignificant_zeros: 2,
                         p_significant_digits: 0,
                         p_insignificant_zeros: 1,
+                        group_separator_count: 0,
                     })),
                 })],
             },
@@ -47,6 +51,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                         insignificant_zeros: 2,
                         p_significant_digits: 0,
                         p_insignificant_zeros: 1,
+                        group_separator_count: 3,
                     })),
                 })],
             },
@@ -81,11 +86,12 @@ fn get_built_in_format(id: usize) -> Option<CellFormat> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FFormat {
-    pub significant_digits: usize,
-    pub insignificant_zeros: usize,
+    pub significant_digits: i32,
+    pub insignificant_zeros: i32,
     /// next two are for digits/zeros before decimal point
-    pub p_significant_digits: usize,
-    pub p_insignificant_zeros: usize,
+    pub p_significant_digits: i32,
+    pub p_insignificant_zeros: i32,
+    pub group_separator_count: i32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -96,16 +102,18 @@ pub enum ValueFormat {
 
 impl FFormat {
     pub fn new(
-        significant_digits: usize,
-        insignificant_zeros: usize,
-        p_significant_digits: usize,
-        p_insignificant_zeros: usize,
+        significant_digits: i32,
+        insignificant_zeros: i32,
+        p_significant_digits: i32,
+        p_insignificant_zeros: i32,
+        group_separator_count: i32,
     ) -> Self {
         Self {
             significant_digits,
             insignificant_zeros,
             p_significant_digits,
             p_insignificant_zeros,
+            group_separator_count,
         }
     }
 }
@@ -340,7 +348,8 @@ fn format_custom_date_cell(value: f64, format: &DTFormat, is_1904: bool) -> Data
     DataTypeRef::DateTime(value)
 }
 
-fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
+// FIXME, we should do this without allocating
+fn format_with_fformat(value: f64, fformat: &FFormat) -> String {
     // FIXME, dp limit ??
     fn excell_round(value: f64, dp: i32) -> String {
         let v = 10f64.powi(dp);
@@ -348,7 +357,99 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
         format!("{:.*}", dp as usize, value)
     }
 
+    dbg!(value);
+    dbg!(fformat);
+
+    let dec_places = fformat.significant_digits + fformat.insignificant_zeros;
+
+    let significant_digits = fformat.significant_digits;
+    let insignificant_zeros = fformat.insignificant_zeros;
+    let grouping_count = fformat.group_separator_count;
+
+    let str_value = excell_round(value, dec_places as i32);
+
+    dbg!(&str_value);
+
+    if grouping_count == 0 && significant_digits == 0 {
+        if let Some(di) = str_value.chars().position(|c| c.eq(&'.')) {
+            let mut sb = str_value.into_bytes();
+            sb[di] = b',';
+            return String::from_utf8(sb).unwrap();
+        }
+        return str_value;
+    }
+
+    let chars_value: Vec<char> = str_value.chars().collect();
+    let dot_position = chars_value.iter().position(|x| (*x).eq(&'.'));
+
+    let mut value_decimal_places: i32 = if let Some(dot_position) = dot_position {
+        (chars_value.len() - dot_position - 1) as i32
+    } else {
+        0
+    };
+
+    let mut new_str_value: VecDeque<char> = VecDeque::new();
+
+    let mut dot = false;
+    let mut last_group = 0;
+    let mut nums = 0;
+
+    for (_, ch) in chars_value.iter().rev().enumerate() {
+        match (*ch, dot) {
+            ('0', false) => {
+                if value_decimal_places <= insignificant_zeros {
+                    new_str_value.push_front(*ch);
+                }
+            }
+            ('.', false) => {
+                // FIXME here we are replacing . with , using LOCALE here for currency ?
+                new_str_value.push_front(',');
+                dot = true;
+            }
+            (c, false) => {
+                new_str_value.push_front(c);
+            }
+            (c, true) => {
+                if grouping_count > 0 {
+                    if last_group == grouping_count {
+                        new_str_value.push_front('.');
+                        last_group = 0;
+                    }
+                    last_group += 1;
+                }
+                new_str_value.push_front(c);
+                nums += 1;
+            }
+        }
+        if !dot {
+            value_decimal_places -= 1;
+        }
+    }
+
+    // feel front with zeros if we have more p_insignificant_zeros
+    if dot {
+        if nums < (fformat.p_insignificant_zeros) {
+            for _ in 0..(fformat.p_insignificant_zeros - nums) {
+                new_str_value.push_front('0');
+            }
+        }
+    } else {
+	// here we now that we don't have decimal place so we can count all digits
+	let vl: i32 = chars_value.len() as i32;
+	if vl < (fformat.p_significant_digits) {
+	    for _ in 0..(fformat.p_insignificant_zeros - vl) {
+                new_str_value.push_front('0');
+            }
+	}
+
+    }
+
+    new_str_value.iter().collect()
+}
+
+fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
     let mut value = value;
+    dbg!(nformats);
 
     let format = if value > 0.0 {
         if let Some(f) = nformats.get(0) {
@@ -379,24 +480,39 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
         }
     };
 
-    let suffix = format
+    let mut suffix = format
         .as_ref()
         .map_or("", |ref f| f.suffix.as_deref().unwrap_or(""));
-    let preffix = format
+    let mut prefix = format
         .as_ref()
         .map_or("", |ref f| f.prefix.as_deref().unwrap_or(""));
     let vformat = format.as_ref().map_or(None, |vf| vf.value_format.as_ref());
 
     let value = if let Some(vformat) = vformat {
         match vformat {
-            ValueFormat::Number(ff) => excell_round(value, ff.insignificant_zeros as i32),
+            ValueFormat::Number(fformat) => format_with_fformat(value, fformat),
             ValueFormat::Text => value.to_string(),
         }
     } else {
         "".to_owned()
     };
 
-    DataTypeRef::String(format!("{}{}{}", preffix, value, suffix))
+    // do not use prefix/suffix if just blank characters
+    prefix = if prefix.chars().all(char::is_whitespace) {
+	""
+    } else {
+	prefix
+    };
+
+    suffix = if suffix.chars().all(char::is_whitespace) {
+	""
+    } else {
+	suffix
+    };
+
+
+
+    DataTypeRef::String(format!("{}{}{}", prefix, value, suffix))
 }
 
 // convert f64 to date, if format == Date
@@ -463,7 +579,8 @@ fn test_is_date_format() {
                     significant_digits: 0,
                     insignificant_zeros: 4,
                     p_significant_digits: 3,
-                    p_insignificant_zeros: 1
+                    p_insignificant_zeros: 1,
+                    group_separator_count: 3,
                 }))
             })]
         }
@@ -479,7 +596,8 @@ fn test_is_date_format() {
                         significant_digits: 0,
                         insignificant_zeros: 4,
                         p_significant_digits: 3,
-                        p_insignificant_zeros: 1
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3,
                     }))
                 }),
                 None
@@ -521,7 +639,8 @@ fn test_is_date_format() {
                         significant_digits: 0,
                         insignificant_zeros: 0,
                         p_significant_digits: 0,
-                        p_insignificant_zeros: 1
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 0,
                     }))
                 }),
                 Some(NFormat {
@@ -531,7 +650,8 @@ fn test_is_date_format() {
                         significant_digits: 0,
                         insignificant_zeros: 0,
                         p_significant_digits: 0,
-                        p_insignificant_zeros: 1
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 0,
                     }))
                 })
             ]
@@ -548,7 +668,8 @@ fn test_is_date_format() {
                     significant_digits: 0,
                     insignificant_zeros: 0,
                     p_significant_digits: 0,
-                    p_insignificant_zeros: 6
+                    p_insignificant_zeros: 6,
+                    group_separator_count: 0,
                 }))
             })]
         }
@@ -659,3 +780,36 @@ fn test_date_format_processing_2() {
         Some("14.3.22 13:44".to_owned()),
     )
 }
+
+#[test]
+fn test_floats_format_1() {
+    assert_eq!(
+        format_with_fformat(23.54330, &FFormat::new(2, 3, 0, 0, 3)),
+        "23,5433".to_string(),
+    )
+}
+
+#[test]
+fn test_floats_format_2() {
+    assert_eq!(
+        format_with_fformat(12323.54330, &FFormat::new(2, 3, 0, 0, 3)),
+        "12.323,5433".to_string(),
+    )
+}
+
+#[test]
+fn test_floats_format_3() {
+    assert_eq!(
+        format_with_fformat(2312323.54330, &FFormat::new(2, 3, 0, 0, 3)),
+        "2.312.323,5433".to_string(),
+    )
+}
+
+// #[test]
+// fn test_date_format_processing_1() {
+//     let format = maybe_custom_date_format("[$-407]d/\\ mmm/;@").unwrap();
+//     assert_eq!(
+//         format_excell_date_time(123456.0, format.format.as_ref(), format.locale),
+//         Some("14. Mär.".to_owned()),
+//     )
+// }

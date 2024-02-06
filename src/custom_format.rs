@@ -257,13 +257,16 @@ fn get_prefix_suffix(
     }
 }
 
+// #,##0.00
 fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char> {
-    let mut pre_insignificant_zeros: usize = 0;
-    let mut pre_significant_digits: usize = 0;
-    let mut post_insignificant_zeros: usize = 0;
-    let mut post_significant_digits: usize = 0;
+    let mut pre_insignificant_zeros: i32 = 0;
+    let mut pre_significant_digits: i32 = 0;
+    let mut post_insignificant_zeros: i32 = 0;
+    let mut post_significant_digits: i32 = 0;
+    let mut group_separator_count: i32 = 0;
     let mut dot = false;
     let mut index = 0;
+    let mut comma = false;
 
     let first_char = fmt.get(0);
 
@@ -289,17 +292,23 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
             }
             (false, '0') => {
                 pre_insignificant_zeros += 1;
+		if comma  {
+		    group_separator_count += 1;
+		}
             }
-            (true, '#') => {
+            (true, '#' | '?') => {
                 post_significant_digits += 1;
             }
-            (false, '#') => {
+            (false, '#' | '?') => {
                 pre_significant_digits += 1;
+		if comma {
+		    group_separator_count += 1;
+		}
             }
             (_, '.') => {
                 dot = true;
             }
-            (_, ',' | '?') => (),
+	    (_, ',') => comma = true,
             _ => {
                 return Ok((
                     index,
@@ -308,6 +317,7 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
                         post_insignificant_zeros,
                         pre_significant_digits,
                         pre_insignificant_zeros,
+			group_separator_count,
                     ))),
                 ));
             }
@@ -323,6 +333,7 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
             post_insignificant_zeros,
             pre_significant_digits,
             pre_insignificant_zeros,
+	    group_separator_count,
         ))),
     ));
 }

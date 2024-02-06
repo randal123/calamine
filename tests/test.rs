@@ -150,29 +150,27 @@ fn issue_number_formats() {
     range_eq!(
         range,
         [
-            [String("123456.000000".to_string())],
-            [String("$20234.00".to_string())],
-            [String("₭543234.00".to_string())],
-            [String("123.000".to_string())],
+            [String("123.456,000000".to_string())],
+            [String("$20.234,00".to_string())],
+            [String("₭543.234,00".to_string())],
+            [String("123,000".to_string())],
             [Float(234.23)],
-            [String("£ 0.01".to_string())],
+            [String("£ 0,01".to_string())],
             [String("123 RSD".to_string())],
             [String("-235 RSD".to_string())],
-            // FIXME, this should be 1.234,0000 RSD
-            [String("1234.0000 RSD".to_string())],
-            // this should be $5.445,00
-            [String("$5445.00".to_string())],
-            [String("1.00".to_string())],
+            [String("1.234,0000 RSD".to_string())],
+            [String("$5.445,00".to_string())],
+            [String("1,00".to_string())],
             [String("a0".to_string())],
-            //FIXME this should be "a000"
-            [String("a0".to_string())],
-            [String("-987.00".to_string())],
-            // [String("Sunday, 1 October 2023".to_string())],
+            [String("a000".to_string())],
+            [String("-987,00".to_string())],
             [String("2023-10-01".to_string())],
-            // [String("Sunday, October 1, 2023".to_string())],
             [String("Sunday, October 1, 2023".to_string())],
             // FIXME, should be £$9.988,00
             // [String("£$ 9988.00".to_string())],
+	    [String("12345678987654300,00000 RSD".to_string())],
+	    // FIXME, not quite right
+	    [String("184467440737095012843520".to_string())],
         ]
     );
 }
