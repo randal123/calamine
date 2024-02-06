@@ -3,9 +3,7 @@ use std::{
     sync::OnceLock,
 };
 
-use chrono::{
-    format::StrftimeItems, DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc,
-};
+use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
 
 use std::fmt::Write;
 
@@ -31,6 +29,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                     prefix: Some("".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
                         significant_digits: 0,
                         insignificant_zeros: 2,
                         p_significant_digits: 0,
@@ -47,6 +46,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                     prefix: Some("".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
                         significant_digits: 0,
                         insignificant_zeros: 2,
                         p_significant_digits: 0,
@@ -56,6 +56,32 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                 })],
             },
         );
+
+        hash.insert(
+            5,
+            maybe_custom_format("\\$#,##0_);\\$#,##0").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            6,
+            maybe_custom_format("\\$#,##0_);\\$#,##0").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            7,
+            maybe_custom_format("\\$#,##0.00);\\$#,##0.00").unwrap_or(CellFormat::Other),
+        );
+        hash.insert(
+            8,
+            maybe_custom_format("\\$#,##0.00);\\$#,##0.00").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(9, maybe_custom_format("0%").unwrap_or(CellFormat::Other));
+        hash.insert(
+            10,
+            maybe_custom_format("0.00%").unwrap_or(CellFormat::Other),
+        );
+
         hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
         hash.insert(
             37,
@@ -85,7 +111,14 @@ fn get_built_in_format(id: usize) -> Option<CellFormat> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum FFormatType {
+    Percentage,
+    Number,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct FFormat {
+    pub ff_type: FFormatType,
     pub significant_digits: i32,
     pub insignificant_zeros: i32,
     /// next two are for digits/zeros before decimal point
@@ -102,6 +135,7 @@ pub enum ValueFormat {
 
 impl FFormat {
     pub fn new(
+        ff_type: FFormatType,
         significant_digits: i32,
         insignificant_zeros: i32,
         p_significant_digits: i32,
@@ -109,6 +143,24 @@ impl FFormat {
         group_separator_count: i32,
     ) -> Self {
         Self {
+            ff_type,
+            significant_digits,
+            insignificant_zeros,
+            p_significant_digits,
+            p_insignificant_zeros,
+            group_separator_count,
+        }
+    }
+
+    pub fn new_number_format(
+        significant_digits: i32,
+        insignificant_zeros: i32,
+        p_significant_digits: i32,
+        p_insignificant_zeros: i32,
+        group_separator_count: i32,
+    ) -> Self {
+        Self {
+            ff_type: FFormatType::Number,
             significant_digits,
             insignificant_zeros,
             p_significant_digits,
@@ -227,8 +279,8 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
 	// '#,##0.00' and '0.00'
 	b"2" => get_built_in_format(2).unwrap_or(CellFormat::Other),
 	b"4" => get_built_in_format(4).unwrap_or(CellFormat::Other),
-	b"9" => todo!(),
-	b"10" => todo!(),
+	b"9" => get_built_in_format(9).unwrap_or(CellFormat::Other),
+	b"10" => get_built_in_format(10).unwrap_or(CellFormat::Other),
 	b"37" => get_built_in_format(37).unwrap_or(CellFormat::Other),
         // mm-dd-yy
         b"14" |
@@ -349,7 +401,7 @@ fn format_custom_date_cell(value: f64, format: &DTFormat, is_1904: bool) -> Data
 }
 
 // FIXME, we should do this without allocating
-fn format_with_fformat(value: f64, fformat: &FFormat) -> String {
+fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
     // FIXME, dp limit ??
     fn excell_round(value: f64, dp: i32) -> String {
         let v = 10f64.powi(dp);
@@ -357,8 +409,9 @@ fn format_with_fformat(value: f64, fformat: &FFormat) -> String {
         format!("{:.*}", dp as usize, value)
     }
 
-    dbg!(value);
-    dbg!(fformat);
+    if fformat.ff_type == FFormatType::Percentage {
+        value = value * 100.0;
+    }
 
     let dec_places = fformat.significant_digits + fformat.insignificant_zeros;
 
@@ -368,12 +421,13 @@ fn format_with_fformat(value: f64, fformat: &FFormat) -> String {
 
     let str_value = excell_round(value, dec_places as i32);
 
-    dbg!(&str_value);
-
     if grouping_count == 0 && significant_digits == 0 {
         if let Some(di) = str_value.chars().position(|c| c.eq(&'.')) {
             let mut sb = str_value.into_bytes();
             sb[di] = b',';
+            if fformat.ff_type == FFormatType::Percentage {
+                sb.push(b'%');
+            }
             return String::from_utf8(sb).unwrap();
         }
         return str_value;
@@ -434,14 +488,17 @@ fn format_with_fformat(value: f64, fformat: &FFormat) -> String {
             }
         }
     } else {
-	// here we now that we don't have decimal place so we can count all digits
-	let vl: i32 = chars_value.len() as i32;
-	if vl < (fformat.p_significant_digits) {
-	    for _ in 0..(fformat.p_insignificant_zeros - vl) {
+        // here we now that we don't have decimal place so we can count all digits
+        let vl: i32 = chars_value.len() as i32;
+        if vl < (fformat.p_significant_digits) {
+            for _ in 0..(fformat.p_insignificant_zeros - vl) {
                 new_str_value.push_front('0');
             }
-	}
+        }
+    }
 
+    if fformat.ff_type == FFormatType::Percentage {
+        new_str_value.push_back('%');
     }
 
     new_str_value.iter().collect()
@@ -449,7 +506,6 @@ fn format_with_fformat(value: f64, fformat: &FFormat) -> String {
 
 fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
     let mut value = value;
-    dbg!(nformats);
 
     let format = if value > 0.0 {
         if let Some(f) = nformats.get(0) {
@@ -499,18 +555,16 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
 
     // do not use prefix/suffix if just blank characters
     prefix = if prefix.chars().all(char::is_whitespace) {
-	""
+        ""
     } else {
-	prefix
+        prefix
     };
 
     suffix = if suffix.chars().all(char::is_whitespace) {
-	""
+        ""
     } else {
-	suffix
+        suffix
     };
-
-
 
     DataTypeRef::String(format!("{}{}{}", prefix, value, suffix))
 }
@@ -576,6 +630,7 @@ fn test_is_date_format() {
                 prefix: Some("£".to_owned()),
                 suffix: None,
                 value_format: Some(ValueFormat::Number(FFormat {
+                    ff_type: FFormatType::Number,
                     significant_digits: 0,
                     insignificant_zeros: 4,
                     p_significant_digits: 3,
@@ -593,6 +648,7 @@ fn test_is_date_format() {
                     prefix: Some("£".to_owned()),
                     suffix: None,
                     value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
                         significant_digits: 0,
                         insignificant_zeros: 4,
                         p_significant_digits: 3,
@@ -636,6 +692,7 @@ fn test_is_date_format() {
                     prefix: Some("".to_owned()),
                     suffix: Some("".to_owned()),
                     value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
                         significant_digits: 0,
                         insignificant_zeros: 0,
                         p_significant_digits: 0,
@@ -647,6 +704,7 @@ fn test_is_date_format() {
                     prefix: Some("-".to_owned()),
                     suffix: Some(" ".to_owned()),
                     value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
                         significant_digits: 0,
                         insignificant_zeros: 0,
                         p_significant_digits: 0,
@@ -665,6 +723,7 @@ fn test_is_date_format() {
                 prefix: Some("Y".to_owned()),
                 suffix: None,
                 value_format: Some(ValueFormat::Number(FFormat {
+                    ff_type: FFormatType::Number,
                     significant_digits: 0,
                     insignificant_zeros: 0,
                     p_significant_digits: 0,
@@ -674,6 +733,25 @@ fn test_is_date_format() {
             })]
         }
     );
+
+    assert_eq!(
+        detect_custom_number_format("0.00%"),
+        CellFormat::NumberFormat {
+            nformats: vec![Some(NFormat {
+                prefix: Some("".to_owned()),
+                suffix: None,
+                value_format: Some(ValueFormat::Number(FFormat {
+                    ff_type: FFormatType::Percentage,
+                    significant_digits: 0,
+                    insignificant_zeros: 2,
+                    p_significant_digits: 0,
+                    p_insignificant_zeros: 1,
+                    group_separator_count: 0,
+                }))
+            })]
+        }
+    );
+
     assert_eq!(
         detect_custom_number_format("#,##0.0####\" YMD\""),
         CellFormat::Other
@@ -784,7 +862,7 @@ fn test_date_format_processing_2() {
 #[test]
 fn test_floats_format_1() {
     assert_eq!(
-        format_with_fformat(23.54330, &FFormat::new(2, 3, 0, 0, 3)),
+        format_with_fformat(23.54330, &FFormat::new_number_format(2, 3, 0, 0, 3)),
         "23,5433".to_string(),
     )
 }
@@ -792,7 +870,7 @@ fn test_floats_format_1() {
 #[test]
 fn test_floats_format_2() {
     assert_eq!(
-        format_with_fformat(12323.54330, &FFormat::new(2, 3, 0, 0, 3)),
+        format_with_fformat(12323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3)),
         "12.323,5433".to_string(),
     )
 }
@@ -800,7 +878,7 @@ fn test_floats_format_2() {
 #[test]
 fn test_floats_format_3() {
     assert_eq!(
-        format_with_fformat(2312323.54330, &FFormat::new(2, 3, 0, 0, 3)),
+        format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3)),
         "2.312.323,5433".to_string(),
     )
 }

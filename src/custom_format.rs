@@ -1,4 +1,4 @@
-use crate::formats::{CellFormat, DTFormat, FFormat, NFormat, ValueFormat};
+use crate::formats::{CellFormat, DTFormat, FFormat, FFormatType, NFormat, ValueFormat};
 
 const QUOTE: [char; 6] = ['&', 'q', 'u', 'o', 't', ';'];
 const HEX_PREFIX: [char; 3] = ['&', '#', 'x'];
@@ -292,32 +292,45 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
             }
             (false, '0') => {
                 pre_insignificant_zeros += 1;
-		if comma  {
-		    group_separator_count += 1;
-		}
+                if comma {
+                    group_separator_count += 1;
+                }
             }
             (true, '#' | '?') => {
                 post_significant_digits += 1;
             }
             (false, '#' | '?') => {
                 pre_significant_digits += 1;
-		if comma {
-		    group_separator_count += 1;
-		}
+                if comma {
+                    group_separator_count += 1;
+                }
             }
             (_, '.') => {
                 dot = true;
             }
-	    (_, ',') => comma = true,
-            _ => {
+            (_, '%') => {
                 return Ok((
-                    index,
+                    index + 1,
                     Some(ValueFormat::Number(FFormat::new(
+                        FFormatType::Percentage,
                         post_significant_digits,
                         post_insignificant_zeros,
                         pre_significant_digits,
                         pre_insignificant_zeros,
-			group_separator_count,
+                        group_separator_count,
+                    ))),
+                ))
+            }
+            (_, ',') => comma = true,
+            _ => {
+                return Ok((
+                    index,
+                    Some(ValueFormat::Number(FFormat::new_number_format(
+                        post_significant_digits,
+                        post_insignificant_zeros,
+                        pre_significant_digits,
+                        pre_insignificant_zeros,
+                        group_separator_count,
                     ))),
                 ));
             }
@@ -328,12 +341,12 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
     return Ok((
         index,
         // None
-        Some(ValueFormat::Number(FFormat::new(
+        Some(ValueFormat::Number(FFormat::new_number_format(
             post_significant_digits,
             post_insignificant_zeros,
             pre_significant_digits,
             pre_insignificant_zeros,
-	    group_separator_count,
+            group_separator_count,
         ))),
     ));
 }

@@ -171,6 +171,7 @@ fn issue_number_formats() {
 	    [String("12345678987654300,00000 RSD".to_string())],
 	    // FIXME, not quite right
 	    [String("184467440737095012843520".to_string())],
+	    [String("1234,00%".to_string())],
         ]
     );
 }
@@ -643,6 +644,7 @@ fn float_vals_xlsb() {
         [
             [Float(1.23)],
             [Float(12.34)],
+	    // [String("1234,00%".to_string())],
             [Float(123.45)],
             [Float(1234.56)],
             [Float(12345.67)],

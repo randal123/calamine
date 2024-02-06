@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-use pure_rust_locales::Locale;
 
 pub fn get_locale_symbols(value: usize) -> Option<&'static (&'static str, &'static str)> {
     get_excell_locales().get(&value)
