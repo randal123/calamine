@@ -22,6 +22,9 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
 
     INSTANCE.get_or_init(|| {
         let mut hash = HashMap::new();
+
+        hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
+
         hash.insert(
             2,
             CellFormat::NumberFormat {
@@ -77,12 +80,54 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
         );
 
         hash.insert(9, maybe_custom_format("0%").unwrap_or(CellFormat::Other));
+
         hash.insert(
             10,
             maybe_custom_format("0.00%").unwrap_or(CellFormat::Other),
         );
 
-        hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
+        hash.insert(
+            14,
+            maybe_custom_format("mm\\-dd\\-yy").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            15,
+            maybe_custom_format("d\\-mmm\\-yy").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            16,
+            maybe_custom_format("d\\-mmm").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            17,
+            maybe_custom_format("mmm\\-yy").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            18,
+            maybe_custom_format("h:mm\\ AM/PM").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            19,
+            maybe_custom_format("h:mm:ss\\ AM/PM").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(20, maybe_custom_format("h:mm").unwrap_or(CellFormat::Other));
+
+        hash.insert(
+            21,
+            maybe_custom_format("h:mm:ss").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            22,
+            maybe_custom_format("m\\/d\\/yy\\ h:mm").unwrap_or(CellFormat::Other),
+        );
+
         hash.insert(
             37,
             maybe_custom_format("#.##0\\ ;#.##0").unwrap_or(CellFormat::Other),
@@ -98,6 +143,19 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
         hash.insert(
             40,
             maybe_custom_format("#,##0.00;[Red]#,##0.00").unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            44,
+            maybe_custom_format(
+                "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+            )
+            .unwrap_or(CellFormat::Other),
+        );
+
+        hash.insert(
+            45,
+            maybe_custom_format("mm:ss").unwrap_or(CellFormat::Other),
         );
 
         hash
@@ -271,7 +329,25 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
     CellFormat::Other
 }
 
+fn make_usize(s: &[u8]) -> Option<usize> {
+    let mut u: u32 = 0;
+    for (index, b) in s.iter().rev().enumerate() {
+        if let Some(d) = (*b as char).to_digit(10) {
+            u += d * u32::pow(10, index as u32);
+        } else {
+            return None;
+        }
+    }
+
+    Some(u as usize)
+}
 pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
+    if let Some(index) = make_usize(id) {
+        if let Some(format) = get_built_in_format(index) {
+            return format;
+        }
+    }
+
     match id {
 	// '0'
 	// b"1" => CellFormat::BuiltIn1,
@@ -419,15 +495,16 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
     let insignificant_zeros = fformat.insignificant_zeros;
     let grouping_count = fformat.group_separator_count;
 
-    let str_value = excell_round(value, dec_places as i32);
+    let mut str_value = excell_round(value, dec_places as i32);
 
     if grouping_count == 0 && significant_digits == 0 {
+        if fformat.ff_type == FFormatType::Percentage {
+            str_value.push('%');
+        }
+
         if let Some(di) = str_value.chars().position(|c| c.eq(&'.')) {
             let mut sb = str_value.into_bytes();
             sb[di] = b',';
-            if fformat.ff_type == FFormatType::Percentage {
-                sb.push(b'%');
-            }
             return String::from_utf8(sb).unwrap();
         }
         return str_value;
