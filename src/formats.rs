@@ -127,7 +127,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
 
         hash.insert(
             22,
-            maybe_custom_format("m\\/d\\/yy\\ h:mm").unwrap_or(CellFormat::Other),
+            maybe_custom_format("m/d/yy\\ h:mm").unwrap_or(CellFormat::Other),
         );
 
         hash.insert(
@@ -522,6 +522,8 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
         return str_value;
     }
 
+    dbg!(&str_value);
+
     let chars_value: Vec<char> = str_value.chars().collect();
     let dot_position = chars_value.iter().position(|x| (*x).eq(&'.'));
 
@@ -536,6 +538,7 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
     let mut dot = false;
     let mut last_group = 0;
     let mut nums = 0;
+
 
     for (_, ch) in chars_value.iter().rev().enumerate() {
         match (*ch, dot) {
@@ -554,6 +557,9 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
             (c, false) => {
                 new_str_value.push_front(c);
             }
+	    ('-', true) => {
+		new_str_value.push_front('-');
+	    }
             (c, true) => {
                 if grouping_count > 0 {
                     if last_group == grouping_count {
@@ -974,5 +980,13 @@ fn test_floats_format_4() {
     assert_eq!(
         format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), Some(0x0407)),
         "2.312.323,5433".to_string(),
+    )
+}
+
+#[test]
+fn test_floats_format_5() {
+    assert_eq!(
+        format_with_fformat(-876545.0, &FFormat::new_number_format(2, 2, 0, 0, 3), Some(0x437)),
+        "-876.545,00".to_string(),
     )
 }

@@ -241,6 +241,28 @@ fn issue_format_date_1() {
 
 
 #[test]
+fn issue_format_currency_1() {
+    setup();
+
+    let path = format!(
+        "{}/tests/issues_format_currency_1.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap().0;
+    range_eq!(
+        range,
+        [
+            [String("876.545,00 ₾".to_string())],
+	    [String("-876.545,00 ₾".to_string())],
+	    [String("876,545.00 ₼".to_string())],
+	    [String("- 876,545.00 ₼".to_string())],
+         ]
+    );
+}
+
+#[test]
 fn vba() {
     setup();
 
