@@ -1,11 +1,17 @@
 use std::{collections::HashMap, sync::OnceLock};
 
+pub(crate) fn get_time_locale(loc_index: usize) -> Option<&'static LocaleData> {
+    if let Some((_, loc_name)) = get_locale_symbols(loc_index) {
+        return get_pure_locales().get(loc_name);
+    }
+    None
+}
 
-pub fn get_locale_symbols(value: usize) -> Option<&'static (&'static str, &'static str)> {
+pub(crate) fn get_locale_symbols(value: usize) -> Option<&'static (&'static str, &'static str)> {
     get_excell_locales().get(&value)
 }
 
-pub fn get_excell_locales() -> &'static HashMap<usize, (&'static str, &'static str)> {
+pub(crate) fn get_excell_locales() -> &'static HashMap<usize, (&'static str, &'static str)> {
     static INSTANCE: OnceLock<HashMap<usize, (&'static str, &'static str)>> = OnceLock::new();
 
     INSTANCE.get_or_init(|| {
@@ -461,6 +467,389 @@ pub fn get_excell_locales() -> &'static HashMap<usize, (&'static str, &'static s
         hash.insert(0x7C68, ("ha_latn", "ha_Latn"));
         hash.insert(0x7C92, ("ku_arab", "ku_Arab"));
 
+        hash
+    })
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct LocaleData {
+    pub d_fmt: &'static str,
+    pub d_t_fmt: &'static str,
+    pub num_decimal_point: &'static str,
+    pub num_thousands_sep: &'static str,
+    pub num_grouping: &'static [i64],
+    pub mon_decimal_point: &'static str,
+    pub mon_thousand_sep: &'static str,
+    pub mon_currency_sym: &'static str,
+    pub mon_int_currency_sym: &'static str,
+    pub mon_frac_digits: i64,
+    pub mon_int_frac_digits: i64,
+}
+
+macro_rules! add_locale {
+    ($name:expr, $mod:ident, $h:expr) => {{
+        $h.insert(
+            $name,
+            LocaleData {
+                d_fmt: pure_rust_locales::$mod::LC_TIME::D_FMT,
+                d_t_fmt: pure_rust_locales::$mod::LC_TIME::D_T_FMT,
+                num_decimal_point: pure_rust_locales::$mod::LC_NUMERIC::DECIMAL_POINT,
+                num_thousands_sep: pure_rust_locales::$mod::LC_NUMERIC::THOUSANDS_SEP,
+                num_grouping: pure_rust_locales::$mod::LC_NUMERIC::GROUPING,
+                mon_decimal_point: pure_rust_locales::$mod::LC_MONETARY::MON_DECIMAL_POINT,
+                mon_thousand_sep: pure_rust_locales::$mod::LC_MONETARY::MON_THOUSANDS_SEP,
+                mon_currency_sym: pure_rust_locales::$mod::LC_MONETARY::CURRENCY_SYMBOL,
+                mon_int_currency_sym: pure_rust_locales::$mod::LC_MONETARY::INT_CURR_SYMBOL,
+                mon_frac_digits: pure_rust_locales::$mod::LC_MONETARY::FRAC_DIGITS,
+                mon_int_frac_digits: pure_rust_locales::$mod::LC_MONETARY::INT_FRAC_DIGITS,
+            },
+        );
+    }};
+}
+
+pub fn get_pure_locales() -> &'static HashMap<&'static str, LocaleData> {
+    static INSTANCE: OnceLock<HashMap<&str, LocaleData>> = OnceLock::new();
+
+    INSTANCE.get_or_init(|| {
+        let mut hash = HashMap::new();
+
+        add_locale!("POSIX", POSIX, hash);
+        add_locale!("aa_DJ", aa_DJ, hash);
+        add_locale!("aa_ER", aa_ER, hash);
+        add_locale!("aa_ER_saaho", aa_ER_saaho, hash);
+        add_locale!("aa_ET", aa_ET, hash);
+        add_locale!("af_ZA", af_ZA, hash);
+        add_locale!("agr_PE", agr_PE, hash);
+        add_locale!("ak_GH", ak_GH, hash);
+        add_locale!("am_ET", am_ET, hash);
+        add_locale!("an_ES", an_ES, hash);
+        add_locale!("anp_IN", anp_IN, hash);
+        add_locale!("ar_AE", ar_AE, hash);
+        add_locale!("ar_BH", ar_BH, hash);
+        add_locale!("ar_DZ", ar_DZ, hash);
+        add_locale!("ar_EG", ar_EG, hash);
+        add_locale!("ar_IN", ar_IN, hash);
+        add_locale!("ar_IQ", ar_IQ, hash);
+        add_locale!("ar_JO", ar_JO, hash);
+        add_locale!("ar_KW", ar_KW, hash);
+        add_locale!("ar_LB", ar_LB, hash);
+        add_locale!("ar_LY", ar_LY, hash);
+        add_locale!("ar_MA", ar_MA, hash);
+        add_locale!("ar_OM", ar_OM, hash);
+        add_locale!("ar_QA", ar_QA, hash);
+        add_locale!("ar_SA", ar_SA, hash);
+        add_locale!("ar_SD", ar_SD, hash);
+        add_locale!("ar_SS", ar_SS, hash);
+        add_locale!("ar_SY", ar_SY, hash);
+        add_locale!("ar_TN", ar_TN, hash);
+        add_locale!("ar_YE", ar_YE, hash);
+        add_locale!("as_IN", as_IN, hash);
+        add_locale!("ast_ES", ast_ES, hash);
+        add_locale!("ayc_PE", ayc_PE, hash);
+        add_locale!("az_AZ", az_AZ, hash);
+        add_locale!("az_IR", az_IR, hash);
+        add_locale!("be_BY", be_BY, hash);
+        add_locale!("be_BY_latin", be_BY_latin, hash);
+        add_locale!("bem_ZM", bem_ZM, hash);
+        add_locale!("ber_DZ", ber_DZ, hash);
+        add_locale!("ber_MA", ber_MA, hash);
+        add_locale!("bg_BG", bg_BG, hash);
+        add_locale!("bhb_IN", bhb_IN, hash);
+        add_locale!("bho_IN", bho_IN, hash);
+        add_locale!("bho_NP", bho_NP, hash);
+        add_locale!("bi_VU", bi_VU, hash);
+        add_locale!("bn_BD", bn_BD, hash);
+        add_locale!("bn_IN", bn_IN, hash);
+        add_locale!("bo_CN", bo_CN, hash);
+        add_locale!("bo_IN", bo_IN, hash);
+        add_locale!("br_FR", br_FR, hash);
+        add_locale!("br_FR_euro", br_FR_euro, hash);
+        add_locale!("brx_IN", brx_IN, hash);
+        add_locale!("bs_BA", bs_BA, hash);
+        add_locale!("byn_ER", byn_ER, hash);
+        add_locale!("ca_AD", ca_AD, hash);
+        add_locale!("ca_ES", ca_ES, hash);
+        add_locale!("ca_ES_euro", ca_ES_euro, hash);
+        add_locale!("ca_ES_valencia", ca_ES_valencia, hash);
+        add_locale!("ca_FR", ca_FR, hash);
+        add_locale!("ca_IT", ca_IT, hash);
+        add_locale!("ce_RU", ce_RU, hash);
+        add_locale!("chr_US", chr_US, hash);
+        add_locale!("cmn_TW", cmn_TW, hash);
+        add_locale!("crh_UA", crh_UA, hash);
+        add_locale!("cs_CZ", cs_CZ, hash);
+        add_locale!("csb_PL", csb_PL, hash);
+        add_locale!("cv_RU", cv_RU, hash);
+        add_locale!("cy_GB", cy_GB, hash);
+        add_locale!("da_DK", da_DK, hash);
+        add_locale!("de_AT", de_AT, hash);
+        add_locale!("de_AT_euro", de_AT_euro, hash);
+        add_locale!("de_BE", de_BE, hash);
+        add_locale!("de_BE_euro", de_BE_euro, hash);
+        add_locale!("de_CH", de_CH, hash);
+        add_locale!("de_DE", de_DE, hash);
+        add_locale!("de_DE_euro", de_DE_euro, hash);
+        add_locale!("de_IT", de_IT, hash);
+        add_locale!("de_LI", de_LI, hash);
+        add_locale!("de_LU", de_LU, hash);
+        add_locale!("de_LU_euro", de_LU_euro, hash);
+        add_locale!("doi_IN", doi_IN, hash);
+        add_locale!("dsb_DE", dsb_DE, hash);
+        add_locale!("dv_MV", dv_MV, hash);
+        add_locale!("dz_BT", dz_BT, hash);
+        add_locale!("el_CY", el_CY, hash);
+        add_locale!("el_GR", el_GR, hash);
+        add_locale!("el_GR_euro", el_GR_euro, hash);
+        add_locale!("en_AG", en_AG, hash);
+        add_locale!("en_AU", en_AU, hash);
+        add_locale!("en_BW", en_BW, hash);
+        add_locale!("en_CA", en_CA, hash);
+        add_locale!("en_DK", en_DK, hash);
+        add_locale!("en_GB", en_GB, hash);
+        add_locale!("en_HK", en_HK, hash);
+        add_locale!("en_IE", en_IE, hash);
+        add_locale!("en_IE_euro", en_IE_euro, hash);
+        add_locale!("en_IL", en_IL, hash);
+        add_locale!("en_IN", en_IN, hash);
+        add_locale!("en_NG", en_NG, hash);
+        add_locale!("en_NZ", en_NZ, hash);
+        add_locale!("en_PH", en_PH, hash);
+        add_locale!("en_SC", en_SC, hash);
+        add_locale!("en_SG", en_SG, hash);
+        add_locale!("en_US", en_US, hash);
+        add_locale!("en_ZA", en_ZA, hash);
+        add_locale!("en_ZM", en_ZM, hash);
+        add_locale!("en_ZW", en_ZW, hash);
+        add_locale!("eo", eo, hash);
+        add_locale!("es_AR", es_AR, hash);
+        add_locale!("es_BO", es_BO, hash);
+        add_locale!("es_CL", es_CL, hash);
+        add_locale!("es_CO", es_CO, hash);
+        add_locale!("es_CR", es_CR, hash);
+        add_locale!("es_CU", es_CU, hash);
+        add_locale!("es_DO", es_DO, hash);
+        add_locale!("es_EC", es_EC, hash);
+        add_locale!("es_ES", es_ES, hash);
+        add_locale!("es_ES_euro", es_ES_euro, hash);
+        add_locale!("es_GT", es_GT, hash);
+        add_locale!("es_HN", es_HN, hash);
+        add_locale!("es_MX", es_MX, hash);
+        add_locale!("es_NI", es_NI, hash);
+        add_locale!("es_PA", es_PA, hash);
+        add_locale!("es_PE", es_PE, hash);
+        add_locale!("es_PR", es_PR, hash);
+        add_locale!("es_PY", es_PY, hash);
+        add_locale!("es_SV", es_SV, hash);
+        add_locale!("es_US", es_US, hash);
+        add_locale!("es_UY", es_UY, hash);
+        add_locale!("es_VE", es_VE, hash);
+        add_locale!("et_EE", et_EE, hash);
+        add_locale!("eu_ES", eu_ES, hash);
+        add_locale!("eu_ES_euro", eu_ES_euro, hash);
+        add_locale!("fa_IR", fa_IR, hash);
+        add_locale!("ff_SN", ff_SN, hash);
+        add_locale!("fi_FI", fi_FI, hash);
+        add_locale!("fi_FI_euro", fi_FI_euro, hash);
+        add_locale!("fil_PH", fil_PH, hash);
+        add_locale!("fo_FO", fo_FO, hash);
+        add_locale!("fr_BE", fr_BE, hash);
+        add_locale!("fr_BE_euro", fr_BE_euro, hash);
+        add_locale!("fr_CA", fr_CA, hash);
+        add_locale!("fr_CH", fr_CH, hash);
+        add_locale!("fr_FR", fr_FR, hash);
+        add_locale!("fr_FR_euro", fr_FR_euro, hash);
+        add_locale!("fr_LU", fr_LU, hash);
+        add_locale!("fr_LU_euro", fr_LU_euro, hash);
+        add_locale!("fur_IT", fur_IT, hash);
+        add_locale!("fy_DE", fy_DE, hash);
+        add_locale!("fy_NL", fy_NL, hash);
+        add_locale!("ga_IE", ga_IE, hash);
+        add_locale!("ga_IE_euro", ga_IE_euro, hash);
+        add_locale!("gd_GB", gd_GB, hash);
+        add_locale!("gez_ER", gez_ER, hash);
+        add_locale!("gez_ER_abegede", gez_ER_abegede, hash);
+        add_locale!("gez_ET", gez_ET, hash);
+        add_locale!("gez_ET_abegede", gez_ET_abegede, hash);
+        add_locale!("gl_ES", gl_ES, hash);
+        add_locale!("gl_ES_euro", gl_ES_euro, hash);
+        add_locale!("gu_IN", gu_IN, hash);
+        add_locale!("gv_GB", gv_GB, hash);
+        add_locale!("ha_NG", ha_NG, hash);
+        add_locale!("hak_TW", hak_TW, hash);
+        add_locale!("he_IL", he_IL, hash);
+        add_locale!("hi_IN", hi_IN, hash);
+        add_locale!("hif_FJ", hif_FJ, hash);
+        add_locale!("hne_IN", hne_IN, hash);
+        add_locale!("hr_HR", hr_HR, hash);
+        add_locale!("hsb_DE", hsb_DE, hash);
+        add_locale!("ht_HT", ht_HT, hash);
+        add_locale!("hu_HU", hu_HU, hash);
+        add_locale!("hy_AM", hy_AM, hash);
+        add_locale!("ia_FR", ia_FR, hash);
+        add_locale!("id_ID", id_ID, hash);
+        add_locale!("ig_NG", ig_NG, hash);
+        add_locale!("ik_CA", ik_CA, hash);
+        add_locale!("is_IS", is_IS, hash);
+        add_locale!("it_CH", it_CH, hash);
+        add_locale!("it_IT", it_IT, hash);
+        add_locale!("it_IT_euro", it_IT_euro, hash);
+        add_locale!("iu_CA", iu_CA, hash);
+        add_locale!("ja_JP", ja_JP, hash);
+        add_locale!("ka_GE", ka_GE, hash);
+        add_locale!("kab_DZ", kab_DZ, hash);
+        add_locale!("kk_KZ", kk_KZ, hash);
+        add_locale!("kl_GL", kl_GL, hash);
+        add_locale!("km_KH", km_KH, hash);
+        add_locale!("kn_IN", kn_IN, hash);
+        add_locale!("ko_KR", ko_KR, hash);
+        add_locale!("kok_IN", kok_IN, hash);
+        add_locale!("ks_IN", ks_IN, hash);
+        add_locale!("ks_IN_devanagari", ks_IN_devanagari, hash);
+        add_locale!("ku_TR", ku_TR, hash);
+        add_locale!("kw_GB", kw_GB, hash);
+        add_locale!("ky_KG", ky_KG, hash);
+        add_locale!("lb_LU", lb_LU, hash);
+        add_locale!("lg_UG", lg_UG, hash);
+        add_locale!("li_BE", li_BE, hash);
+        add_locale!("li_NL", li_NL, hash);
+        add_locale!("lij_IT", lij_IT, hash);
+        add_locale!("ln_CD", ln_CD, hash);
+        add_locale!("lo_LA", lo_LA, hash);
+        add_locale!("lt_LT", lt_LT, hash);
+        add_locale!("lv_LV", lv_LV, hash);
+        add_locale!("lzh_TW", lzh_TW, hash);
+        add_locale!("mag_IN", mag_IN, hash);
+        add_locale!("mai_IN", mai_IN, hash);
+        add_locale!("mai_NP", mai_NP, hash);
+        add_locale!("mfe_MU", mfe_MU, hash);
+        add_locale!("mg_MG", mg_MG, hash);
+        add_locale!("mhr_RU", mhr_RU, hash);
+        add_locale!("mi_NZ", mi_NZ, hash);
+        add_locale!("miq_NI", miq_NI, hash);
+        add_locale!("mjw_IN", mjw_IN, hash);
+        add_locale!("mk_MK", mk_MK, hash);
+        add_locale!("ml_IN", ml_IN, hash);
+        add_locale!("mn_MN", mn_MN, hash);
+        add_locale!("mni_IN", mni_IN, hash);
+        add_locale!("mnw_MM", mnw_MM, hash);
+        add_locale!("mr_IN", mr_IN, hash);
+        add_locale!("ms_MY", ms_MY, hash);
+        add_locale!("mt_MT", mt_MT, hash);
+        add_locale!("my_MM", my_MM, hash);
+        add_locale!("nan_TW", nan_TW, hash);
+        add_locale!("nan_TW_latin", nan_TW_latin, hash);
+        add_locale!("nb_NO", nb_NO, hash);
+        add_locale!("nds_DE", nds_DE, hash);
+        add_locale!("nds_NL", nds_NL, hash);
+        add_locale!("ne_NP", ne_NP, hash);
+        add_locale!("nhn_MX", nhn_MX, hash);
+        add_locale!("niu_NU", niu_NU, hash);
+        add_locale!("niu_NZ", niu_NZ, hash);
+        add_locale!("nl_AW", nl_AW, hash);
+        add_locale!("nl_BE", nl_BE, hash);
+        add_locale!("nl_BE_euro", nl_BE_euro, hash);
+        add_locale!("nl_NL", nl_NL, hash);
+        add_locale!("nl_NL_euro", nl_NL_euro, hash);
+        add_locale!("nn_NO", nn_NO, hash);
+        add_locale!("nr_ZA", nr_ZA, hash);
+        add_locale!("nso_ZA", nso_ZA, hash);
+        add_locale!("oc_FR", oc_FR, hash);
+        add_locale!("om_ET", om_ET, hash);
+        add_locale!("om_KE", om_KE, hash);
+        add_locale!("or_IN", or_IN, hash);
+        add_locale!("os_RU", os_RU, hash);
+        add_locale!("pa_IN", pa_IN, hash);
+        add_locale!("pa_PK", pa_PK, hash);
+        add_locale!("pap_AW", pap_AW, hash);
+        add_locale!("pap_CW", pap_CW, hash);
+        add_locale!("pl_PL", pl_PL, hash);
+        add_locale!("ps_AF", ps_AF, hash);
+        add_locale!("pt_BR", pt_BR, hash);
+        add_locale!("pt_PT", pt_PT, hash);
+        add_locale!("pt_PT_euro", pt_PT_euro, hash);
+        add_locale!("quz_PE", quz_PE, hash);
+        add_locale!("raj_IN", raj_IN, hash);
+        add_locale!("ro_RO", ro_RO, hash);
+        add_locale!("ru_RU", ru_RU, hash);
+        add_locale!("ru_UA", ru_UA, hash);
+        add_locale!("rw_RW", rw_RW, hash);
+        add_locale!("sa_IN", sa_IN, hash);
+        add_locale!("sah_RU", sah_RU, hash);
+        add_locale!("sat_IN", sat_IN, hash);
+        add_locale!("sc_IT", sc_IT, hash);
+        add_locale!("sd_IN", sd_IN, hash);
+        add_locale!("sd_IN_devanagari", sd_IN_devanagari, hash);
+        add_locale!("se_NO", se_NO, hash);
+        add_locale!("sgs_LT", sgs_LT, hash);
+        add_locale!("shn_MM", shn_MM, hash);
+        add_locale!("shs_CA", shs_CA, hash);
+        add_locale!("si_LK", si_LK, hash);
+        add_locale!("sid_ET", sid_ET, hash);
+        add_locale!("sk_SK", sk_SK, hash);
+        add_locale!("sl_SI", sl_SI, hash);
+        add_locale!("sm_WS", sm_WS, hash);
+        add_locale!("so_DJ", so_DJ, hash);
+        add_locale!("so_ET", so_ET, hash);
+        add_locale!("so_KE", so_KE, hash);
+        add_locale!("so_SO", so_SO, hash);
+        add_locale!("sq_AL", sq_AL, hash);
+        add_locale!("sq_MK", sq_MK, hash);
+        add_locale!("sr_ME", sr_ME, hash);
+        add_locale!("sr_RS", sr_RS, hash);
+        add_locale!("sr_RS_latin", sr_RS_latin, hash);
+        add_locale!("ss_ZA", ss_ZA, hash);
+        add_locale!("st_ZA", st_ZA, hash);
+        add_locale!("sv_FI", sv_FI, hash);
+        add_locale!("sv_FI_euro", sv_FI_euro, hash);
+        add_locale!("sv_SE", sv_SE, hash);
+        add_locale!("sw_KE", sw_KE, hash);
+        add_locale!("sw_TZ", sw_TZ, hash);
+        add_locale!("szl_PL", szl_PL, hash);
+        add_locale!("ta_IN", ta_IN, hash);
+        add_locale!("ta_LK", ta_LK, hash);
+        add_locale!("tcy_IN", tcy_IN, hash);
+        add_locale!("te_IN", te_IN, hash);
+        add_locale!("tg_TJ", tg_TJ, hash);
+        add_locale!("th_TH", th_TH, hash);
+        add_locale!("the_NP", the_NP, hash);
+        add_locale!("ti_ER", ti_ER, hash);
+        add_locale!("ti_ET", ti_ET, hash);
+        add_locale!("tig_ER", tig_ER, hash);
+        add_locale!("tk_TM", tk_TM, hash);
+        add_locale!("tl_PH", tl_PH, hash);
+        add_locale!("tn_ZA", tn_ZA, hash);
+        add_locale!("to_TO", to_TO, hash);
+        add_locale!("tpi_PG", tpi_PG, hash);
+        add_locale!("tr_CY", tr_CY, hash);
+        add_locale!("tr_TR", tr_TR, hash);
+        add_locale!("ts_ZA", ts_ZA, hash);
+        add_locale!("tt_RU", tt_RU, hash);
+        add_locale!("tt_RU_iqtelif", tt_RU_iqtelif, hash);
+        add_locale!("ug_CN", ug_CN, hash);
+        add_locale!("uk_UA", uk_UA, hash);
+        add_locale!("unm_US", unm_US, hash);
+        add_locale!("ur_IN", ur_IN, hash);
+        add_locale!("ur_PK", ur_PK, hash);
+        add_locale!("uz_UZ", uz_UZ, hash);
+        add_locale!("uz_UZ_cyrillic", uz_UZ_cyrillic, hash);
+        add_locale!("ve_ZA", ve_ZA, hash);
+        add_locale!("vi_VN", vi_VN, hash);
+        add_locale!("wa_BE", wa_BE, hash);
+        add_locale!("wa_BE_euro", wa_BE_euro, hash);
+        add_locale!("wae_CH", wae_CH, hash);
+        add_locale!("wal_ET", wal_ET, hash);
+        add_locale!("wo_SN", wo_SN, hash);
+        add_locale!("xh_ZA", xh_ZA, hash);
+        add_locale!("yi_US", yi_US, hash);
+        add_locale!("yo_NG", yo_NG, hash);
+        add_locale!("yue_HK", yue_HK, hash);
+        add_locale!("yuw_PG", yuw_PG, hash);
+        add_locale!("zh_CN", zh_CN, hash);
+        add_locale!("zh_HK", zh_HK, hash);
+        add_locale!("zh_SG", zh_SG, hash);
+        add_locale!("zh_TW", zh_TW, hash);
+        add_locale!("zu_ZA", zu_ZA, hash);
         hash
     })
 }

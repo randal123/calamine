@@ -1,4 +1,7 @@
-use crate::formats::{CellFormat, DTFormat, FFormat, FFormatType, NFormat, ValueFormat};
+use crate::{
+    formats::{CellFormat, DTFormat, FFormat, FFormatType, NFormat, ValueFormat},
+    locales::{get_time_locale, LocaleData},
+};
 
 const QUOTE: [char; 6] = ['&', 'q', 'u', 'o', 't', ';'];
 const HEX_PREFIX: [char; 3] = ['&', '#', 'x'];
@@ -431,7 +434,20 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
     return None;
 }
 
-fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
+fn decode_excell_format(
+    fmt: &[char],
+    locale: Option<&'static LocaleData>,
+) -> Option<(String, usize)> {
+    fn get_date_separator(d_fmt: &str) -> char {
+        // FIXME
+        for ch in d_fmt.chars() {
+            match ch {
+                '/' | '-' | '.' | ' ' => return ch,
+                _ => (),
+            }
+        }
+        '/'
+    }
     fn get_strftime_code(
         ch: char,
         count: usize,
@@ -452,7 +468,7 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
             ('d', 3, ..) => Ok("%a"),
             ('d', 4, ..) => Ok("%A"),
             ('h', 1, false) => Ok("%-H"),
-            ('h', 1, true) => Ok("%-H %P"),
+            ('h', 1, true) => Ok("%-H %p"),
             ('h', 2, ..) => Ok("%H"),
             ('m', 1, ..) => {
                 if months_processed {
@@ -470,14 +486,14 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
             }
             ('m', 2, true) => {
                 if months_processed {
-                    Ok("%M %P")
+                    Ok("%M %p")
                 } else {
                     Ok("%m")
                 }
             }
             ('s', 1, ..) => Ok("%-S"),
             ('s', 2, false) => Ok("%S"),
-            ('s', 2, true) => Ok("%S %P"),
+            ('s', 2, true) => Ok("%S %p"),
             _ => Err(ch),
         }
     }
@@ -502,6 +518,14 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
     let mut index = 0;
 
     let mut months_processed = false;
+
+    // we are using '/' as default separator (en_US locale)
+    let date_separator = if let Some(locale) = locale {
+        get_date_separator(locale.d_fmt)
+    } else {
+        '/'
+    };
+
     loop {
         if let Some(ch) = fmt.get(index) {
             match ch {
@@ -534,19 +558,18 @@ fn decode_excell_format(fmt: &[char]) -> Option<(String, usize)> {
                         return None;
                     }
                     if fmt[index..index + 3].eq(&A_P) {
-                        format.push_str("%P");
+                        format.push_str("%p");
                         index += 3;
                         continue;
                     } else if current_len >= 5 && fmt[index..index + 5].eq(&AM_PM) {
-                        format.push_str("%P");
+                        format.push_str("%p");
                         index += 5;
                         continue;
                     } else {
                         return None;
                     }
                 }
-                // built in Date format can be dd/mm/yyyy
-                '/' => format.push('.'),
+                '/' => format.push(date_separator),
                 ':' => format.push(':'),
                 _ => return None,
             }
@@ -564,7 +587,13 @@ pub fn maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
 
     match get_prefix_suffix(&fmt, true) {
         Ok((prefix, locale, index)) => {
-            if let Some((format, offset)) = decode_excell_format(&fmt[index..]) {
+            let date_locale = if let Some(locale_index) = locale {
+                get_time_locale(locale_index)
+            } else {
+                None
+            };
+
+            if let Some((format, offset)) = decode_excell_format(&fmt[index..], date_locale) {
                 return match get_prefix_suffix(&fmt[index + offset..], true) {
                     Ok((suffix, _, _)) => Some(DTFormat {
                         locale,

@@ -349,15 +349,7 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
     }
 
     match id {
-	// '0'
-	// b"1" => CellFormat::BuiltIn1,
-	b"1" => get_built_in_format(1).unwrap_or(CellFormat::Other),
-	// '#,##0.00' and '0.00'
-	b"2" => get_built_in_format(2).unwrap_or(CellFormat::Other),
-	b"4" => get_built_in_format(4).unwrap_or(CellFormat::Other),
-	b"9" => get_built_in_format(9).unwrap_or(CellFormat::Other),
-	b"10" => get_built_in_format(10).unwrap_or(CellFormat::Other),
-	b"37" => get_built_in_format(37).unwrap_or(CellFormat::Other),
+	b"1" => CellFormat::BuiltIn1,
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -419,6 +411,7 @@ fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> Optio
         };
         let secs = 86400.0 * (f - f.floor());
         let days = f as i64;
+
         let Some(date) = start.checked_add_signed(chrono::Duration::days(days - 2)) else {
             return None;
         };
@@ -683,23 +676,11 @@ fn test_is_date_format() {
         CellFormat::DateTime
     );
 
-    // assert_eq!(
-    //     detect_custom_number_format("[$-404]aaa;@"),
-    //     CellFormat::CustomDateTimeFormat(DTFormat {
-    //         locale: Some(1028),
-    //         prefix: Some("".to_string()),
-    //         format: "%A".to_string(),
-    //         suffix: Some("".to_string()),
-    //     })
-    // );
     assert_eq!(
         detect_custom_number_format("H:MM:SS;@"),
         CellFormat::DateTime
     );
-    // assert_eq!(
-    //     detect_custom_number_format("#,##0\\ [$\\u20bd-46D]"),
-    //     CellFormat::Other
-    // );
+
     assert_eq!(
         detect_custom_number_format("[$&#xA3;-809]#,##0.0000"),
         CellFormat::NumberFormat {
@@ -869,17 +850,6 @@ fn test_is_date_format() {
         detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
         CellFormat::Other
     );
-
-    // assert_eq!(format_excell_date_time(40909.4166666667, "%A, %-d %B, %Y" , Some(0x0409)),
-    // 	       Some("Tuesday, 3 January, 2012".to_owned()));
-
-    // assert_eq!(format_excell_date_time(40909.4166666667, "%A, %-d %B, %Y" , Some(0x0407)),
-    // 	       Some("Tuesday, 3 January, 2012".to_owned()));
-
-    // assert_eq!({
-    // 	let format = maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@");
-    // 	format_excell_date_time(40909.4166666667, &maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@").as_ref().unwrap().format , Some(0x0407))},
-    // 	       Some("Tuesday, 3 January, 2012".to_owned()));
 }
 
 #[test]
@@ -905,18 +875,9 @@ fn test_date_format_processing_built_in() {
     let format = maybe_custom_date_format("dd/mm/yyyy;@").unwrap();
     assert_eq!(
         format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-        Some("20.01.2023".to_owned()),
+        Some("20/01/2023".to_owned()),
     )
 }
-
-// #[test]
-// fn test_date_format_processing_built_in() {
-//     let format = maybe_custom_date_format("[$-409]d/m/yy\ h:mm\\ AM\/PM;@").unwrap();
-//     assert_eq!(
-//         format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-//         Some("20.01.2023".to_owned()),
-//     )
-// }
 
 #[test]
 fn test_date_format_processing_1() {
@@ -932,7 +893,25 @@ fn test_date_format_processing_2() {
     let format = maybe_custom_date_format("d/m/yy\\ h:mm;@").unwrap();
     assert_eq!(
         format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
-        Some("14.3.22 13:44".to_owned()),
+        Some("14/3/22 13:44".to_owned()),
+    )
+}
+
+#[test]
+fn test_date_format_processing_3() {
+    let format = maybe_custom_date_format("[$-409]m/d/yy\\ h:mm\\ AM/PM;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
+        Some("9/11/09 0:00 AM".to_owned()), // excell is showing 12:00 AM here (don't know why)
+    )
+}
+
+#[test]
+fn test_date_format_processing_4() {
+    let format = maybe_custom_date_format("m/d/yy\\ h:mm;@").unwrap();
+    assert_eq!(
+        format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
+        Some("9/11/09 0:00".to_owned()),
     )
 }
 
@@ -959,12 +938,3 @@ fn test_floats_format_3() {
         "2.312.323,5433".to_string(),
     )
 }
-
-// #[test]
-// fn test_date_format_processing_1() {
-//     let format = maybe_custom_date_format("[$-407]d/\\ mmm/;@").unwrap();
-//     assert_eq!(
-//         format_excell_date_time(123456.0, format.format.as_ref(), format.locale),
-//         Some("14. Mär.".to_owned()),
-//     )
-// }

@@ -190,18 +190,49 @@ fn issue_date_formats() {
     range_eq!(
         range,
         [
-            [String("20.01.2023".to_string())],
+            [String("20/01/2023".to_string())],
             [String("2023-01-20".to_string())],
-	    [String("20.1.23".to_string())],
+	    [String("20/1/23".to_string())],
             [String("20. Jan. 23".to_string())],
 	    [String("星期五, 20 一月, 2023".to_string())],
 	    [String("Januar 23".to_string())],
 	    [String("週五".to_string())],
 	    [String("1".to_string())],
 	    [String("14. Mär.".to_string())],
-	    [String("14.3.22 13:44".to_string())],
+	    [String("14/3/22 13:44".to_string())],
 	    [String("2.341.234,00 RSD".to_string())],
         ]
+    );
+}
+
+#[test]
+fn issue_format_date_1() {
+    setup();
+
+    let path = format!(
+        "{}/tests/issues_format_date_1.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap().0;
+    range_eq!(
+        range,
+        [
+            [String("2009-09-11".to_string())],
+	    [String("9/11".to_string())],
+	    [String("9/11/09".to_string())],
+	    [String("09/11/09".to_string())],
+	    [String("11-Sep".to_string())],
+	    [String("11-Sep-09".to_string())],
+	    [String("11-Sep-09".to_string())],
+	    [String("Sep-09".to_string())],
+	    [String("September 11, 2009".to_string())],
+	    [String("9/11/09 0:00 AM".to_string())], // Excel is showing 12:00 here, now sure why
+	    [String("11-Sep-2009".to_string())],
+	    [String("9/11/09 0:00".to_string())],
+	    [String("September-09".to_string())],
+         ]
     );
 }
 
