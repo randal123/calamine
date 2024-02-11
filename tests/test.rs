@@ -150,28 +150,28 @@ fn issue_number_formats() {
     range_eq!(
         range,
         [
-            [String("123.456,000000".to_string())],
-            [String("$20.234,00".to_string())],
-            [String("₭543.234,00".to_string())],
-            [String("123,000".to_string())],
+            [String("123,456.000000".to_string())],
+            [String("$20,234.00".to_string())],
+            [String("₭543,234.00".to_string())],
+            [String("123.000".to_string())],
             [Float(234.23)],
-            [String("£ 0,01".to_string())],
+            [String("£ 0.01".to_string())],
             [String("123 RSD".to_string())],
             [String("-235 RSD".to_string())],
-            [String("1.234,0000 RSD".to_string())],
-            [String("$5.445,00".to_string())],
-            [String("1,00".to_string())],
+            [String("1,234.0000 RSD".to_string())],
+            [String("$5,445.00".to_string())],
+            [String("1.00".to_string())],
             [String("a0".to_string())],
             [String("a000".to_string())],
-            [String("-987,00".to_string())],
+            [String("-987.00".to_string())],
             [String("2023-10-01".to_string())],
             [String("Sunday, October 1, 2023".to_string())],
             // FIXME, should be £$9.988,00
             // [String("£$ 9988.00".to_string())],
-	    [String("12345678987654300,00000 RSD".to_string())],
+	    [String("12345678987654300.00000 RSD".to_string())],
 	    // FIXME, not quite right
 	    [String("184467440737095012843520".to_string())],
-	    [String("1234,00%".to_string())],
+	    [String("1234.00%".to_string())],
         ]
     );
 }
@@ -200,7 +200,9 @@ fn issue_date_formats() {
 	    [String("1".to_string())],
 	    [String("14. Mär.".to_string())],
 	    [String("14/3/22 13:44".to_string())],
-	    [String("2.341.234,00 RSD".to_string())],
+	    [String("2,341,234.00 RSD".to_string())],
+	    [String("XOF 2,341,234.00".to_string())],
+	    [String("2,341,234.00 F CFA".to_string())],
         ]
     );
 }
@@ -232,6 +234,7 @@ fn issue_format_date_1() {
 	    [String("11-Sep-2009".to_string())],
 	    [String("9/11/09 0:00".to_string())],
 	    [String("September-09".to_string())],
+	    [String("11.09.09".to_string())],
          ]
     );
 }

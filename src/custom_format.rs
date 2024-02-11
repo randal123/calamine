@@ -369,21 +369,26 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
                 start += 1;
             } else {
                 match get_prefix_suffix(&fmt[start..], false) {
-                    Ok((prefix, _locale, offset)) => {
+                    Ok((prefix, p_locale, offset)) => {
                         start += offset;
                         match parse_value_format(&fmt[start..]) {
                             Ok((offset, fformat)) => {
                                 start += offset;
                                 if let Some(ch) = fmt.get(start) {
                                     if ch.eq(&';') {
-                                        nformats.push(Some(NFormat::new(prefix, None, fformat)));
+                                        nformats.push(Some(NFormat::new(
+                                            prefix, None, p_locale, fformat,
+                                        )));
                                         start += 1;
                                         continue;
                                     } else {
                                         match get_prefix_suffix(&fmt[start..], false) {
-                                            Ok((suffix, _locale, offset)) => {
+                                            Ok((suffix, s_locale, offset)) => {
                                                 nformats.push(Some(NFormat::new(
-                                                    prefix, suffix, fformat,
+                                                    prefix,
+                                                    suffix,
+                                                    p_locale.or(s_locale),
+                                                    fformat,
                                                 )));
                                                 start += offset;
                                                 if let Some(ch) = fmt.get(start) {
@@ -403,7 +408,8 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
                                         }
                                     }
                                 } else {
-                                    nformats.push(Some(NFormat::new(prefix, None, fformat)));
+                                    nformats
+                                        .push(Some(NFormat::new(prefix, None, p_locale, fformat)));
                                     break;
                                 }
                             }

@@ -10,7 +10,7 @@ use std::fmt::Write;
 use crate::{
     custom_format::{maybe_custom_date_format, maybe_custom_format},
     datatype::DataTypeRef,
-    locales::get_locale_symbols,
+    locales::{get_locale_symbols, get_time_locale},
     DataType,
 };
 
@@ -31,6 +31,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                 nformats: vec![Some(NFormat {
                     prefix: Some("".to_owned()),
                     suffix: None,
+                    locale: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         ff_type: FFormatType::Number,
                         significant_digits: 0,
@@ -48,6 +49,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
                 nformats: vec![Some(NFormat {
                     prefix: Some("".to_owned()),
                     suffix: None,
+                    locale: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         ff_type: FFormatType::Number,
                         significant_digits: 0,
@@ -232,6 +234,7 @@ impl FFormat {
 pub struct NFormat {
     pub prefix: Option<String>,
     pub suffix: Option<String>,
+    pub locale: Option<usize>,
     pub value_format: Option<ValueFormat>,
 }
 
@@ -239,11 +242,13 @@ impl NFormat {
     pub fn new(
         prefix: Option<String>,
         suffix: Option<String>,
+        locale: Option<usize>,
         value_format: Option<ValueFormat>,
     ) -> Self {
         Self {
             prefix,
             suffix,
+            locale,
             value_format,
         }
     }
@@ -263,6 +268,8 @@ pub enum CellFormat {
     DateTime,
     TimeDelta,
     BuiltIn1,
+    // FIXME, we are using NumberFormat for both currencty and numbers
+    // currency/acounting can have Locale but numbers can't
     NumberFormat { nformats: Vec<Option<NFormat>> },
     CustomDateTimeFormat(DTFormat),
 }
@@ -451,6 +458,8 @@ fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> Optio
             return Some(formatted_str);
         }
     }
+    // FIXME, should we try to format with default format if locale is present
+    // if locale is not present use en_US format ?
     None
 }
 
@@ -470,7 +479,7 @@ fn format_custom_date_cell(value: f64, format: &DTFormat, is_1904: bool) -> Data
 }
 
 // FIXME, we should do this without allocating
-fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
+fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>) -> String {
     // FIXME, dp limit ??
     fn excell_round(value: f64, dp: i32) -> String {
         let v = 10f64.powi(dp);
@@ -481,6 +490,12 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
     if fformat.ff_type == FFormatType::Percentage {
         value = value * 100.0;
     }
+
+    let locale_data = locale.map_or(None, |i| get_time_locale(i));
+
+    // we are using en_US as default locale if not specified
+    let decimal_point = locale_data.map_or(".", |ld| ld.num_decimal_point);
+    let thousand_separator = locale_data.map_or(",", |ld| ld.num_thousands_sep);
 
     let dec_places = fformat.significant_digits + fformat.insignificant_zeros;
 
@@ -495,10 +510,14 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
             str_value.push('%');
         }
 
-        if let Some(di) = str_value.chars().position(|c| c.eq(&'.')) {
-            let mut sb = str_value.into_bytes();
-            sb[di] = b',';
-            return String::from_utf8(sb).unwrap();
+        // only if decimal point is not "."
+        if !decimal_point.eq(".") {
+	    // chars().position() is OK since it's String representation of float value so it's ASCII only
+            if let Some(di) = str_value.chars().position(|c| c.eq(&'.')) {
+                let mut sb = str_value.into_bytes();
+                sb.splice(di..di + 1, decimal_point.bytes());
+                return String::from_utf8(sb).unwrap();
+            }
         }
         return str_value;
     }
@@ -526,8 +545,10 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
                 }
             }
             ('.', false) => {
-                // FIXME here we are replacing . with , using LOCALE here for currency ?
-                new_str_value.push_front(',');
+                // replacing it with localized dec seprator
+                for c in decimal_point.chars() {
+                    new_str_value.push_front(c);
+                }
                 dot = true;
             }
             (c, false) => {
@@ -536,7 +557,9 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat) -> String {
             (c, true) => {
                 if grouping_count > 0 {
                     if last_group == grouping_count {
-                        new_str_value.push_front('.');
+                        for c in thousand_separator.chars() {
+                            new_str_value.push_front(c);
+                        }
                         last_group = 0;
                     }
                     last_group += 1;
@@ -612,11 +635,12 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
     let mut prefix = format
         .as_ref()
         .map_or("", |ref f| f.prefix.as_deref().unwrap_or(""));
+    let locale = format.as_ref().map_or(None, |f| f.locale);
     let vformat = format.as_ref().map_or(None, |vf| vf.value_format.as_ref());
 
     let value = if let Some(vformat) = vformat {
         match vformat {
-            ValueFormat::Number(fformat) => format_with_fformat(value, fformat),
+            ValueFormat::Number(fformat) => format_with_fformat(value, fformat, locale),
             ValueFormat::Text => value.to_string(),
         }
     } else {
@@ -687,6 +711,7 @@ fn test_is_date_format() {
             nformats: vec![Some(NFormat {
                 prefix: Some("£".to_owned()),
                 suffix: None,
+                locale: Some(2057),
                 value_format: Some(ValueFormat::Number(FFormat {
                     ff_type: FFormatType::Number,
                     significant_digits: 0,
@@ -705,6 +730,7 @@ fn test_is_date_format() {
                 Some(NFormat {
                     prefix: Some("£".to_owned()),
                     suffix: None,
+                    locale: Some(2057),
                     value_format: Some(ValueFormat::Number(FFormat {
                         ff_type: FFormatType::Number,
                         significant_digits: 0,
@@ -749,6 +775,7 @@ fn test_is_date_format() {
                 Some(NFormat {
                     prefix: Some("".to_owned()),
                     suffix: Some("".to_owned()),
+                    locale: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         ff_type: FFormatType::Number,
                         significant_digits: 0,
@@ -761,6 +788,7 @@ fn test_is_date_format() {
                 Some(NFormat {
                     prefix: Some("-".to_owned()),
                     suffix: Some(" ".to_owned()),
+                    locale: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         ff_type: FFormatType::Number,
                         significant_digits: 0,
@@ -780,6 +808,7 @@ fn test_is_date_format() {
             nformats: vec![Some(NFormat {
                 prefix: Some("Y".to_owned()),
                 suffix: None,
+                locale: None,
                 value_format: Some(ValueFormat::Number(FFormat {
                     ff_type: FFormatType::Number,
                     significant_digits: 0,
@@ -798,6 +827,7 @@ fn test_is_date_format() {
             nformats: vec![Some(NFormat {
                 prefix: Some("".to_owned()),
                 suffix: None,
+                locale: None,
                 value_format: Some(ValueFormat::Number(FFormat {
                     ff_type: FFormatType::Percentage,
                     significant_digits: 0,
@@ -918,23 +948,31 @@ fn test_date_format_processing_4() {
 #[test]
 fn test_floats_format_1() {
     assert_eq!(
-        format_with_fformat(23.54330, &FFormat::new_number_format(2, 3, 0, 0, 3)),
-        "23,5433".to_string(),
+        format_with_fformat(23.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
+        "23.5433".to_string(),
     )
 }
 
 #[test]
 fn test_floats_format_2() {
     assert_eq!(
-        format_with_fformat(12323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3)),
-        "12.323,5433".to_string(),
+        format_with_fformat(12323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
+        "12,323.5433".to_string(),
     )
 }
 
 #[test]
 fn test_floats_format_3() {
     assert_eq!(
-        format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3)),
+        format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
+        "2,312,323.5433".to_string(),
+    )
+}
+
+#[test]
+fn test_floats_format_4() {
+    assert_eq!(
+        format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), Some(0x0407)),
         "2.312.323,5433".to_string(),
     )
 }
