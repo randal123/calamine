@@ -8,7 +8,10 @@ use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
 use std::fmt::Write;
 
 use crate::{
-    custom_format::{maybe_custom_date_format, maybe_custom_format},
+    custom_format::{
+        maybe_custom_date_format, maybe_custom_format, panic_safe_maybe_custom_date_format,
+        panic_safe_maybe_custom_format, parse_excell_format,
+    },
     datatype::DataTypeRef,
     locales::{get_locale_symbols, get_time_locale},
     DataType,
@@ -23,7 +26,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
     INSTANCE.get_or_init(|| {
         let mut hash = HashMap::new();
 
-        hash.insert(1, maybe_custom_format("0").unwrap_or(CellFormat::Other));
+        hash.insert(1, parse_excell_format("0", CellFormat::Other));
 
         hash.insert(
             2,
@@ -64,101 +67,83 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
 
         hash.insert(
             5,
-            maybe_custom_format("\\$#,##0_);\\$#,##0").unwrap_or(CellFormat::Other),
+            parse_excell_format("\\$#,##0_);\\$#,##0", CellFormat::Other),
         );
 
         hash.insert(
             6,
-            maybe_custom_format("\\$#,##0_);\\$#,##0").unwrap_or(CellFormat::Other),
+            parse_excell_format("\\$#,##0_);\\$#,##0", CellFormat::Other),
         );
 
         hash.insert(
             7,
-            maybe_custom_format("\\$#,##0.00);\\$#,##0.00").unwrap_or(CellFormat::Other),
+            parse_excell_format("\\$#,##0.00;\\$#,##0.00", CellFormat::Other),
         );
         hash.insert(
             8,
-            maybe_custom_format("\\$#,##0.00);\\$#,##0.00").unwrap_or(CellFormat::Other),
+            parse_excell_format("\\$#,##0.00;\\$#,##0.00", CellFormat::Other),
         );
 
-        hash.insert(9, maybe_custom_format("0%").unwrap_or(CellFormat::Other));
+        hash.insert(9, parse_excell_format("0%", CellFormat::Other));
 
-        hash.insert(
-            10,
-            maybe_custom_format("0.00%").unwrap_or(CellFormat::Other),
-        );
+        hash.insert(10, parse_excell_format("0.00%", CellFormat::Other));
 
         hash.insert(
             14,
-            maybe_custom_format("mm\\-dd\\-yy").unwrap_or(CellFormat::Other),
+            parse_excell_format("mm\\-dd\\-yy", CellFormat::DateTime),
         );
 
         hash.insert(
             15,
-            maybe_custom_format("d\\-mmm\\-yy").unwrap_or(CellFormat::Other),
+            parse_excell_format("d\\-mmm\\-yy", CellFormat::DateTime),
         );
 
-        hash.insert(
-            16,
-            maybe_custom_format("d\\-mmm").unwrap_or(CellFormat::Other),
-        );
+        hash.insert(16, parse_excell_format("d\\-mmm", CellFormat::DateTime));
 
-        hash.insert(
-            17,
-            maybe_custom_format("mmm\\-yy").unwrap_or(CellFormat::Other),
-        );
+        hash.insert(17, parse_excell_format("mmm\\-yy", CellFormat::DateTime));
 
         hash.insert(
             18,
-            maybe_custom_format("h:mm\\ AM/PM").unwrap_or(CellFormat::Other),
+            parse_excell_format("h:mm\\ AM/PM", CellFormat::DateTime),
         );
 
         hash.insert(
             19,
-            maybe_custom_format("h:mm:ss\\ AM/PM").unwrap_or(CellFormat::Other),
+            parse_excell_format("h:mm:ss\\ AM/PM", CellFormat::DateTime),
         );
 
-        hash.insert(20, maybe_custom_format("h:mm").unwrap_or(CellFormat::Other));
+        hash.insert(20, parse_excell_format("h:mm", CellFormat::DateTime));
 
-        hash.insert(
-            21,
-            maybe_custom_format("h:mm:ss").unwrap_or(CellFormat::Other),
-        );
+        hash.insert(21, parse_excell_format("h:mm:ss", CellFormat::DateTime));
 
         hash.insert(
             22,
-            maybe_custom_format("m/d/yy\\ h:mm").unwrap_or(CellFormat::Other),
+            parse_excell_format("m/d/yy\\ h:mm", CellFormat::DateTime),
         );
 
-        hash.insert(
-            37,
-            maybe_custom_format("#.##0\\ ;#.##0").unwrap_or(CellFormat::Other),
-        );
+        hash.insert(37, parse_excell_format("#.##0\\ ;#.##0", CellFormat::Other));
         hash.insert(
             38,
-            maybe_custom_format("#,##0 ;[Red]#,##0").unwrap_or(CellFormat::Other),
+            parse_excell_format("#,##0;[Red]#,##0", CellFormat::Other),
         );
         hash.insert(
             39,
-            maybe_custom_format("#,##0.00#,##0.00").unwrap_or(CellFormat::Other),
+            parse_excell_format("#,##0.00#,##0.00", CellFormat::Other),
         );
         hash.insert(
             40,
-            maybe_custom_format("#,##0.00;[Red]#,##0.00").unwrap_or(CellFormat::Other),
+            parse_excell_format("#,##0.00;[Red]#,##0.00", CellFormat::Other),
         );
 
         hash.insert(
             44,
-            maybe_custom_format(
+            parse_excell_format(
                 "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
-            )
-            .unwrap_or(CellFormat::Other),
+                CellFormat::Other,
+            ),
         );
 
-        hash.insert(
-            45,
-            maybe_custom_format("mm:ss").unwrap_or(CellFormat::Other),
-        );
+        hash.insert(45, parse_excell_format("mm:ss", CellFormat::DateTime));
 
         hash
     })
@@ -276,6 +261,7 @@ pub enum CellFormat {
 
 /// Check excel number format is datetime
 pub fn detect_custom_number_format(format: &str) -> CellFormat {
+    dbg!(format);
     let mut escaped = false;
     let mut is_quote = false;
     let mut brackets = 0u8;
@@ -290,10 +276,10 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
             (_, _, true, _, _) => (),
             ('"', _, _, _, _) => is_quote = true,
             (';', ..) => {
-                if let Some(fp_format) = maybe_custom_format(format) {
+                if let Some(fp_format) = panic_safe_maybe_custom_format(format) {
                     return fp_format;
                 }
-                if let Some(date_format) = maybe_custom_date_format(format) {
+                if let Some(date_format) = panic_safe_maybe_custom_date_format(format) {
                     return CellFormat::CustomDateTimeFormat(date_format);
                 }
 
@@ -312,7 +298,7 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
                 }
             }
             ('d' | 'm' | 'h' | 'y' | 's' | 'D' | 'M' | 'H' | 'Y' | 'S', _, _, false, 0) => {
-                if let Some(format) = maybe_custom_date_format(format) {
+                if let Some(format) = panic_safe_maybe_custom_date_format(format) {
                     return CellFormat::CustomDateTimeFormat(format);
                 } else {
                     return CellFormat::DateTime;
@@ -329,8 +315,12 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
         prev = s;
     }
 
-    if let Some(cell_format) = maybe_custom_format(format) {
+    if let Some(cell_format) = panic_safe_maybe_custom_format(format) {
         return cell_format;
+    }
+
+    if let Some(cell_format) = panic_safe_maybe_custom_date_format(format) {
+        return CellFormat::CustomDateTimeFormat(cell_format);
     }
 
     CellFormat::Other
@@ -396,9 +386,20 @@ pub fn builtin_format_by_code(code: u16) -> CellFormat {
     }
 }
 
+fn custom_format_excell_date_i64(value: i64, format: &DTFormat, is_1904: bool) -> DataType {
+    match format_custom_date_cell(value as f64, format, is_1904) {
+        DataTypeRef::String(s) => DataType::String(s),
+        DataTypeRef::DateTime(v) => DataType::DateTime(v),
+        _ => DataType::DateTime(value as f64),
+    }
+}
+
 // convert i64 to date, if format == Date
 pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
     match format {
+        Some(CellFormat::CustomDateTimeFormat(format)) => {
+            custom_format_excell_date_i64(value, format, is_1904)
+        }
         Some(CellFormat::DateTime) => DataType::DateTime(
             (if is_1904 {
                 value + EXCEL_1900_1904_DIFF
@@ -406,6 +407,12 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
                 value
             }) as f64,
         ),
+        Some(CellFormat::NumberFormat { nformats }) => {
+            match format_custom_format_fcell(value as f64, &nformats) {
+                DataTypeRef::String(s) => DataType::String(s),
+                _ => DataType::Int(value),
+            }
+        }
         Some(CellFormat::TimeDelta) => DataType::Duration(value as f64),
         _ => DataType::Int(value),
     }
@@ -512,7 +519,7 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
 
         // only if decimal point is not "."
         if !decimal_point.eq(".") {
-	    // chars().position() is OK since it's String representation of float value so it's ASCII only
+            // chars().position() is OK since it's String representation of float value so it's ASCII only
             if let Some(di) = str_value.chars().position(|c| c.eq(&'.')) {
                 let mut sb = str_value.into_bytes();
                 sb.splice(di..di + 1, decimal_point.bytes());
@@ -521,8 +528,6 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
         }
         return str_value;
     }
-
-    dbg!(&str_value);
 
     let chars_value: Vec<char> = str_value.chars().collect();
     let dot_position = chars_value.iter().position(|x| (*x).eq(&'.'));
@@ -538,7 +543,6 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
     let mut dot = false;
     let mut last_group = 0;
     let mut nums = 0;
-
 
     for (_, ch) in chars_value.iter().rev().enumerate() {
         match (*ch, dot) {
@@ -557,9 +561,9 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
             (c, false) => {
                 new_str_value.push_front(c);
             }
-	    ('-', true) => {
-		new_str_value.push_front('-');
-	    }
+            ('-', true) => {
+                new_str_value.push_front('-');
+            }
             (c, true) => {
                 if grouping_count > 0 {
                     if last_group == grouping_count {
@@ -962,7 +966,11 @@ fn test_floats_format_1() {
 #[test]
 fn test_floats_format_2() {
     assert_eq!(
-        format_with_fformat(12323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
+        format_with_fformat(
+            12323.54330,
+            &FFormat::new_number_format(2, 3, 0, 0, 3),
+            None
+        ),
         "12,323.5433".to_string(),
     )
 }
@@ -970,7 +978,11 @@ fn test_floats_format_2() {
 #[test]
 fn test_floats_format_3() {
     assert_eq!(
-        format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
+        format_with_fformat(
+            2312323.54330,
+            &FFormat::new_number_format(2, 3, 0, 0, 3),
+            None
+        ),
         "2,312,323.5433".to_string(),
     )
 }
@@ -978,7 +990,11 @@ fn test_floats_format_3() {
 #[test]
 fn test_floats_format_4() {
     assert_eq!(
-        format_with_fformat(2312323.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), Some(0x0407)),
+        format_with_fformat(
+            2312323.54330,
+            &FFormat::new_number_format(2, 3, 0, 0, 3),
+            Some(0x0407)
+        ),
         "2.312.323,5433".to_string(),
     )
 }
@@ -986,7 +1002,11 @@ fn test_floats_format_4() {
 #[test]
 fn test_floats_format_5() {
     assert_eq!(
-        format_with_fformat(-876545.0, &FFormat::new_number_format(2, 2, 0, 0, 3), Some(0x437)),
+        format_with_fformat(
+            -876545.0,
+            &FFormat::new_number_format(2, 2, 0, 0, 3),
+            Some(0x437)
+        ),
         "-876.545,00".to_string(),
     )
 }

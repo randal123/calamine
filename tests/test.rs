@@ -258,6 +258,7 @@ fn issue_format_currency_1() {
 	    [String("-876.545,00 ₾".to_string())],
 	    [String("876,545.00 ₼".to_string())],
 	    [String("- 876,545.00 ₼".to_string())],
+	    [String("bla".to_string())],
          ]
     );
 }
@@ -875,7 +876,7 @@ fn date_xls() {
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap().0;
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((0, 0)), Some(&String("2021-01-01".to_string())));
     assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
 
     #[cfg(feature = "dates")]
@@ -899,7 +900,7 @@ fn date_xls_1904() {
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap().0;
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((0, 0)), Some(&String("2021-01-01".to_string())));
     assert_eq!(range.get_value((2, 0)), Some(&Duration(10.632060185185185)));
 
     #[cfg(feature = "dates")]
@@ -923,7 +924,7 @@ fn date_xlsx() {
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap().0;
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((0, 0)), Some(&String("2021-01-01".to_string())));
     assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
 
     #[cfg(feature = "dates")]
@@ -947,7 +948,7 @@ fn date_xlsx_1904() {
     let mut xls: Xlsx<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap().0;
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((0, 0)), Some(&String("2021-01-01".to_string())));
     assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
 
     #[cfg(feature = "dates")]
@@ -1065,7 +1066,7 @@ fn date_xlsb() {
     let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap().0;
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((0, 0)), Some(&String("2021-01-01".to_string())));
     assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
 
     #[cfg(feature = "dates")]
@@ -1089,7 +1090,7 @@ fn date_xlsb_1904() {
     let mut xls: Xlsb<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range_at(0).unwrap().unwrap().0;
 
-    assert_eq!(range.get_value((0, 0)), Some(&DateTime(44197.0)));
+    assert_eq!(range.get_value((0, 0)), Some(&String("2021-01-01".to_string())));
     assert_eq!(range.get_value((2, 0)), Some(&Duration(10.6320601851852)));
 
     #[cfg(feature = "dates")]

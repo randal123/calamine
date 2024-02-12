@@ -354,6 +354,13 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
     ));
 }
 
+pub fn panic_safe_maybe_custom_format(format: &str) -> Option<CellFormat> {
+    match std::panic::catch_unwind(|| maybe_custom_format(format)) {
+        Ok(res) => res,
+        Err(_) => None,
+    }
+}
+
 pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
     let fmt: Vec<char> = format.chars().collect();
 
@@ -513,8 +520,7 @@ fn decode_excell_format(
                 return count;
             }
         }
-        // FIXME, can't be 0 ?
-        0
+        count
     }
 
     const A_P: [char; 3] = ['A', '/', 'P'];
@@ -588,6 +594,13 @@ fn decode_excell_format(
     Some((format, index))
 }
 
+pub fn panic_safe_maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
+    match std::panic::catch_unwind(|| maybe_custom_date_format(fmt)) {
+        Ok(res) => res,
+        Err(_) => None,
+    }
+}
+
 pub fn maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
     let fmt: Vec<_> = fmt.chars().collect();
 
@@ -615,4 +628,16 @@ pub fn maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
         }
         Err(_c) => None,
     }
+}
+
+pub fn parse_excell_format(format: &str, default: CellFormat) -> CellFormat {
+    if let Some(cf) = panic_safe_maybe_custom_format(format) {
+        return cf;
+    }
+
+    if let Some(cf) = panic_safe_maybe_custom_date_format(format) {
+        return CellFormat::CustomDateTimeFormat(cf);
+    }
+
+    default
 }
