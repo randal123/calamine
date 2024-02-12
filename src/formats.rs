@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use crate::{
     custom_format::{
-        maybe_custom_date_format, maybe_custom_format, panic_safe_maybe_custom_date_format,
+        maybe_custom_date_format, panic_safe_maybe_custom_date_format,
         panic_safe_maybe_custom_format, parse_excell_format,
     },
     datatype::DataTypeRef,
@@ -90,17 +90,17 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
 
         hash.insert(
             14,
-            parse_excell_format("mm\\-dd\\-yy", CellFormat::DateTime),
+            parse_excell_format("m/d/yy", CellFormat::DateTime),
         );
 
         hash.insert(
             15,
-            parse_excell_format("d\\-mmm\\-yy", CellFormat::DateTime),
+            parse_excell_format("d/mmm/yy", CellFormat::DateTime),
         );
 
-        hash.insert(16, parse_excell_format("d\\-mmm", CellFormat::DateTime));
+        hash.insert(16, parse_excell_format("d/mmm", CellFormat::DateTime));
 
-        hash.insert(17, parse_excell_format("mmm\\-yy", CellFormat::DateTime));
+        hash.insert(17, parse_excell_format("mmm/yy", CellFormat::DateTime));
 
         hash.insert(
             18,
@@ -261,7 +261,6 @@ pub enum CellFormat {
 
 /// Check excel number format is datetime
 pub fn detect_custom_number_format(format: &str) -> CellFormat {
-    dbg!(format);
     let mut escaped = false;
     let mut is_quote = false;
     let mut brackets = 0u8;

@@ -177,6 +177,26 @@ fn issue_number_formats() {
 }
 
 #[test]
+fn issue_bad_date_formats() {
+    setup();
+
+    let path = format!(
+        "{}/tests/bad_date.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap().0;
+    range_eq!(
+        range,
+        [
+            [String("9/7/14".to_string())],
+
+        ]
+    );
+}
+
+#[test]
 fn issue_date_formats() {
     setup();
 
