@@ -798,6 +798,7 @@ pub fn get_pure_locales() -> &'static HashMap<&'static str, LocaleData> {
         add_locale!("sr_ME", sr_ME, hash);
         add_locale!("sr_RS", sr_RS, hash);
         add_locale!("sr_RS_latin", sr_RS_latin, hash);
+	add_locale!("sr_Latn_RS", sr_RS_latin, hash);
         add_locale!("ss_ZA", ss_ZA, hash);
         add_locale!("st_ZA", st_ZA, hash);
         add_locale!("sv_FI", sv_FI, hash);
