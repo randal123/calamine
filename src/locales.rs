@@ -508,7 +508,7 @@ macro_rules! add_locale {
     }};
 }
 
-pub fn get_pure_locales() -> &'static HashMap<&'static str, LocaleData> {
+pub(crate) fn get_pure_locales() -> &'static HashMap<&'static str, LocaleData> {
     static INSTANCE: OnceLock<HashMap<&str, LocaleData>> = OnceLock::new();
 
     INSTANCE.get_or_init(|| {
