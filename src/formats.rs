@@ -88,15 +88,9 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
 
         hash.insert(10, parse_excell_format("0.00%", CellFormat::Other));
 
-        hash.insert(
-            14,
-            parse_excell_format("m/d/yy", CellFormat::DateTime),
-        );
+        hash.insert(14, parse_excell_format("m/d/yy", CellFormat::DateTime));
 
-        hash.insert(
-            15,
-            parse_excell_format("d/mmm/yy", CellFormat::DateTime),
-        );
+        hash.insert(15, parse_excell_format("d/mmm/yy", CellFormat::DateTime));
 
         hash.insert(16, parse_excell_format("d/mmm", CellFormat::DateTime));
 
@@ -542,6 +536,11 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
     let mut dot = false;
     let mut last_group = 0;
     let mut nums = 0;
+
+    // if we don't have decimal places then dot is already passed
+    if value_decimal_places == 0 {
+        dot = true;
+    }
 
     for (_, ch) in chars_value.iter().rev().enumerate() {
         match (*ch, dot) {

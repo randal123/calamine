@@ -284,6 +284,25 @@ fn issue_format_currency_1() {
 }
 
 #[test]
+fn issue_format_currency_2() {
+    setup();
+
+    let path = format!(
+        "{}/tests/currency_fail_1.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet2").unwrap().0;
+    range_eq!(
+        range,
+        [
+            [String("$2,196".to_string())],
+         ]
+    );
+}
+
+#[test]
 fn vba() {
     setup();
 
