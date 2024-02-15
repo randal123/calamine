@@ -2,36 +2,69 @@ use crate::{
     formats::{CellFormat, DTFormat, FFormat, FFormatType, NFormat, ValueFormat},
     locales::{get_time_locale, LocaleData},
 };
+use anyhow::anyhow;
 
 const QUOTE: [char; 6] = ['&', 'q', 'u', 'o', 't', ';'];
 const HEX_PREFIX: [char; 3] = ['&', '#', 'x'];
 
-fn read_hex_format(fmt: &[char]) -> Option<(char, usize)> {
+#[derive(Debug)]
+struct ReadResult<T> {
+    result: T,
+    offset: usize,
+    end: bool,
+}
+
+impl<T> ReadResult<T> {
+    fn new(result: T, offset: usize, end: bool) -> Self {
+        Self {
+            result,
+            offset,
+            end,
+        }
+    }
+}
+
+// [$&#xA3;-809]#,##0.0000 -> &#xA3;
+fn read_hex_format(fmt: &[char]) -> anyhow::Result<ReadResult<char>> {
     let mut offset = 3;
     let mut shift = 0;
 
     if fmt.len() >= 5 && fmt[0..=2].eq(&HEX_PREFIX) {
         let mut sc: u32 = 0;
 
-        if let Some(end_index) = fmt.iter().position(|c| c.eq(&';')) {
-            for i in (3..end_index).rev() {
-                let c = fmt[i];
+        let Some(end_index) = fmt.iter().position(|c| c.eq(&';')) else {
+            return Err(anyhow!(
+                "Missing ';' in fmt: {}",
+                fmt.iter().collect::<String>()
+            ));
+        };
 
-                sc += c.to_digit(16).unwrap() << shift;
-                shift += 4;
-                offset += 1
-            }
+        for i in (3..end_index).rev() {
+            let c = fmt[i];
+
+            sc += c.to_digit(16).unwrap() << shift;
+            shift += 4;
+            offset += 1
         }
+
         if let Ok(ch) = TryInto::<char>::try_into(sc) {
-            return Some((ch, offset));
+            return Ok(ReadResult::new(ch, offset, false));
+        } else {
+            return Err(anyhow!(
+                "Can't make char out of {}, fmt: {}",
+                sc,
+                fmt.iter().collect::<String>()
+            ));
         }
     }
-
-    None
+    Err(anyhow!(
+        "Missing '&#x' in fmt: {}",
+        fmt.iter().collect::<String>()
+    ))
 }
 
-fn read_quoted_value(fmt: &[char]) -> Result<(String, usize), Option<char>> {
-    let mut index = 6;
+fn read_quoted_value(fmt: &[char]) -> anyhow::Result<(String, usize)> {
+    let mut index = QUOTE.len();
     let mut s = String::new();
 
     if fmt.len() >= 6 && fmt[0..=5].eq(&QUOTE) {
@@ -39,35 +72,44 @@ fn read_quoted_value(fmt: &[char]) -> Result<(String, usize), Option<char>> {
             if let Some(c) = fmt.get(index) {
                 match c {
                     '&' => {
-                        if let Some(nc) = fmt.get(index + 1) {
-                            if nc.eq(&'#') {
-                                if let Some((ch, offset)) = read_hex_format(&fmt[index..]) {
-                                    s.push(ch);
-                                    index += offset;
-                                } else {
-                                    return Err(Some('#'));
-                                }
-                            } else if fmt[index..index + 6].eq(&QUOTE) {
-                                return Ok((s, index + QUOTE.len() - 1));
-                            }
-                        } else {
-                            return Err(Some(*c));
+                        let Some(nc) = fmt.get(index + 1) else {
+                            return Err(anyhow!(
+                                "Missing char in fmt: {}",
+                                fmt.iter().collect::<String>()
+                            ));
+                        };
+                        if nc.eq(&'#') {
+                            let ReadResult { result, offset, .. } = read_hex_format(&fmt[index..])?;
+                            s.push(result);
+                            index += offset;
+                        } else if fmt
+                            .get(index..index + QUOTE.len())
+                            .map_or(false, |v| v.eq(&QUOTE))
+                        {
+                            return Ok((s, index + QUOTE.len() - 1));
                         }
                     }
 
                     ch => s.push(*ch),
                 }
             } else {
-                return Err(None);
+                return Err(anyhow!(
+                    "Missing char in fmt: {}",
+                    fmt.iter().collect::<String>()
+                ));
             }
             index += 1;
         }
-    } else {
-        Err(None)
     }
+
+    return Err(anyhow!(
+        "Missing '&quot;' in fmt: {}",
+        fmt.iter().collect::<String>()
+    ));
 }
 
-fn read_locale(fmt: &[char]) -> Option<(usize, usize)> {
+// [$&#xA3;-809]
+fn read_locale(fmt: &[char]) -> anyhow::Result<ReadResult<usize>> {
     // FIXME, we are assuming that LOCALE ends with ']'
     if let Some(end_index) = fmt.iter().position(|c| c.eq(&']')) {
         let mut value: usize = 0;
@@ -76,23 +118,37 @@ fn read_locale(fmt: &[char]) -> Option<(usize, usize)> {
             let c = fmt[i];
 
             let Ok(v) = TryInto::<usize>::try_into(c.to_digit(16).unwrap() << shift) else {
-                return None;
+                return Err(anyhow!(
+                    "Char '{}' is not valid hex in fmt: {}",
+                    c,
+                    fmt.iter().collect::<String>()
+                ));
             };
 
             value += v;
             shift += 4;
         }
-        return Some((value, end_index));
+        return Ok(ReadResult::new(value, end_index, false));
     }
 
-    None
+    Err(anyhow!(
+        "Missing char '] in fmt: {}",
+        fmt.iter().collect::<String>()
+    ))
 }
 
-fn get_prefix_suffix(
+fn get_fix(
     fmt: &[char],
     date_format: bool,
-) -> Result<(Option<String>, Option<usize>, usize), char> {
-    let mut p: String = String::new();
+) -> anyhow::Result<ReadResult<(Option<String>, Option<usize>)>> {
+    fn maybe_string(s: String) -> Option<String> {
+        if s.len() > 0 {
+            Some(s)
+        } else {
+            None
+        }
+    }
+    let mut p = String::new();
     let mut escaped = false;
     let mut in_brackets = false;
     let mut index = 0;
@@ -104,45 +160,52 @@ fn get_prefix_suffix(
                 ('&', false, true) => {
                     if let Some(nc) = fmt.get(index + 1) {
                         if nc.eq(&'#') {
-                            match read_hex_format(&fmt[index as usize..]) {
-                                Some((c, offset)) => {
-                                    p.push(c);
-                                    // FIXME, here we escape only one hex char, maybe it can be more ??
-                                    index += offset;
-                                }
-                                None => return Err(*c),
-                            }
+                            let ReadResult { result, offset, .. } = read_hex_format(&fmt[index..])?;
+                            p.push(result);
+                            index += offset;
                         } else {
                             // FIXME, probably there are more options after &
-                            return Err(*nc);
+                            return Err(anyhow!(
+                                "Unknown char '{}' in fmt: {}",
+                                *nc,
+                                fmt[index + 1..].iter().collect::<String>()
+                            ));
                         }
                     } else {
-                        // FIXME,
-                        return Err('&');
+                        return Err(anyhow!(
+                            "Missing char in fmt: {}, index {}",
+                            fmt.iter().collect::<String>(),
+                            index
+                        ));
                     }
                 }
-                // escaped &, does this work ?
+                // FIXME, escaped &, not sure does this work ?
+                // currently this is the same code as above but probably shouldn't be
                 ('&', true, false) => {
                     if let Some(nc) = fmt.get(index + 1) {
                         if nc.eq(&'#') {
-                            match read_hex_format(&fmt[index as usize..]) {
-                                Some((c, offset)) => {
-                                    p.push(c);
-                                    // FIXME, here we escape only one hex char, maybe it can be more ??
-                                    index += offset;
-                                }
-                                None => return Err(*c),
-                            }
+                            let ReadResult { result, offset, .. } =
+                                read_hex_format(&fmt[index as usize..])?;
+                            p.push(result);
+                            index += offset;
                         } else {
-                            // FIXME, probably there are more options after &
-                            return Err(*nc);
+                            // FIXME, probably there are more options after '&', not just '#'
+                            return Err(anyhow!(
+                                "Unknown char '{}' in fmt: {}",
+                                *nc,
+                                fmt[index + 1..].iter().collect::<String>()
+                            ));
                         }
                     } else {
-                        // FIXME,
-                        return Err('&');
+                        return Err(anyhow!(
+                            "Missing char in fmt: {}, index {}",
+                            fmt.iter().collect::<String>(),
+                            index
+                        ));
                     }
                 }
                 ('&', false, false) => {
+                    // FIXME, read
                     if fmt[index..index + 6].eq(&QUOTE) {
                         if let Ok((s, offset)) = read_quoted_value(&fmt[index..]) {
                             p.push_str(&s);
@@ -161,7 +224,7 @@ fn get_prefix_suffix(
                 ('\\', _, true) => p.push(*c),
                 // open brackets
                 ('[', false, false) => {
-                    // FIXME, we should look for $ to confirm bracket mode
+                    // FIXME, we look for $ to confirm bracket mode ?
                     //if not this is color related or some other metadata, we can skip this
                     if let Some(nc) = fmt.get(index + 1) {
                         if nc.eq(&'$') {
@@ -177,12 +240,18 @@ fn get_prefix_suffix(
                                 continue;
                             } else {
                                 // can't find closing bracket, signal error
-                                return Err(']');
+                                return Err(anyhow!(
+                                    "Missing char ']' in fmt: {}",
+                                    fmt[index..].iter().collect::<String>()
+                                ));
                             }
                         }
+                    } else {
+                        return Err(anyhow!(
+                            "Missing char ']' in fmt: {}",
+                            fmt.iter().collect::<String>()
+                        ));
                     }
-                    // in_brackets = true;
-                    // expected_char = Some('$');
                 }
                 // open bracket inside of brackets
                 ('[', _, true) => {
@@ -193,15 +262,19 @@ fn get_prefix_suffix(
                     in_brackets = false;
                 }
                 // when not escaped and not inside of brackets start parsing number format or @ text format
-                ('#' | '0' | '?' | ',' | '@', false, false) => {
-                    return Ok((Some(p), locale, index));
+                ('#' | '0' | '?' | ',' | '@' | '.', false, false) => {
+                    return Ok(ReadResult::new((maybe_string(p), locale), index, false));
                 }
                 // this is when we are parsing date format
                 ('y' | 'm' | 'd' | 'h' | 's' | 'a', false, false) => {
                     if date_format {
-                        return Ok((Some(p), locale, index));
+                        return Ok(ReadResult::new((maybe_string(p), locale), index, false));
                     } else {
-                        return Err(*c);
+                        return Err(anyhow!(
+                            "Char '{}' not allowed in non date format in fmt: {}",
+                            *c,
+                            fmt.iter().collect::<String>()
+                        ));
                     }
                 }
                 // repeat character, for now just ignore, ignore next character also
@@ -220,9 +293,9 @@ fn get_prefix_suffix(
                 ('-', _, true) => {
                     // FIXME, skip to the closing bracket
                     // FIXME, now sure that - is actually doing but looks like it's allways at the end of bracket signaling LOCALE
-                    if let Some((lcl, offset)) = read_locale(&fmt[index + 1..]) {
+                    if let Ok(ReadResult { result, offset, .. }) = read_locale(&fmt[index + 1..]) {
                         index += offset;
-                        locale = Some(lcl);
+                        locale = Some(result);
                     } else {
                         if let Some(close_bracket_index) =
                             &fmt[index..].iter().position(|tc| tc.eq(&']'))
@@ -230,7 +303,7 @@ fn get_prefix_suffix(
                             index += close_bracket_index;
                             continue;
                         } else {
-                            return Err('-');
+                            return Err(anyhow!("Missing char ']'"));
                         }
                     }
                 }
@@ -238,30 +311,25 @@ fn get_prefix_suffix(
                 (_, _, true) => p.push(*c),
                 // semi-colon separates two number formats
                 (';', false, false) => {
-                    return Ok((Some(p), locale, index));
+                    return Ok(ReadResult::new((maybe_string(p), locale), index + 1, true));
                 }
-                // FIXME, date formats can be like "dd/mm/yyyy;@" replace / with .
-                // unknown character, return Error
-                // ('/', ..) => {
-                //     if date_format {
-                // 	p.push('.');
-                //     } else {
-                // 	return Err(*c);
-                //     }
-                // }
                 (_, ..) => {
-                    return Err(*c);
+                    return Err(anyhow!(
+                        "Unknown char '{}' in fmt: {}",
+                        *c,
+                        fmt[index..].iter().collect::<String>()
+                    ));
                 }
             }
             index += 1;
         } else {
-            return Ok((Some(p), locale, index));
+            return Ok(ReadResult::new((maybe_string(p), locale), index, true));
         }
     }
 }
 
 // #,##0.00
-fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char> {
+fn parse_value_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<ValueFormat>>> {
     let mut pre_insignificant_zeros: i32 = 0;
     let mut pre_significant_digits: i32 = 0;
     let mut post_insignificant_zeros: i32 = 0;
@@ -274,18 +342,19 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
     let first_char = fmt.get(0);
 
     if first_char.is_none() {
-        return Ok((index, None));
+        return Ok(ReadResult::new(None, index, true));
     }
 
     let first_char = first_char.unwrap();
 
+    // FIXME, we need to go further until ';' or end of fmt
     if first_char.eq(&'@') {
-        return Ok((index + 1, Some(ValueFormat::Text)));
+        return Ok(ReadResult::new(Some(ValueFormat::Text), index + 1, false));
     }
 
     if !first_char.eq(&'0') && !first_char.eq(&'#') && !first_char.eq(&'.') && !first_char.eq(&'?')
     {
-        return Ok((index, None));
+        return Ok(ReadResult::new(None, index, false));
     }
 
     for c in fmt {
@@ -312,8 +381,7 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
                 dot = true;
             }
             (_, '%') => {
-                return Ok((
-                    index + 1,
+                return Ok(ReadResult::new(
                     Some(ValueFormat::Number(FFormat::new(
                         FFormatType::Percentage,
                         post_significant_digits,
@@ -322,12 +390,13 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
                         pre_insignificant_zeros,
                         group_separator_count,
                     ))),
-                ))
+                    index + 1, // skip '%'
+                    false,
+                ));
             }
             (_, ',') => comma = true,
             _ => {
-                return Ok((
-                    index,
+                return Ok(ReadResult::new(
                     Some(ValueFormat::Number(FFormat::new_number_format(
                         post_significant_digits,
                         post_insignificant_zeros,
@@ -335,15 +404,15 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
                         pre_insignificant_zeros,
                         group_separator_count,
                     ))),
+                    index,
+                    false,
                 ));
             }
         }
         index += 1;
     }
 
-    return Ok((
-        index,
-        // None
+    return Ok(ReadResult::new(
         Some(ValueFormat::Number(FFormat::new_number_format(
             post_significant_digits,
             post_insignificant_zeros,
@@ -351,17 +420,26 @@ fn parse_value_format(fmt: &[char]) -> Result<(usize, Option<ValueFormat>), char
             pre_insignificant_zeros,
             group_separator_count,
         ))),
+        index,
+        false,
     ));
 }
 
-pub fn panic_safe_maybe_custom_format(format: &str) -> Option<CellFormat> {
+pub fn panic_safe_maybe_custom_format(format: &str) -> Option<Vec<Option<NFormat>>> {
     match std::panic::catch_unwind(|| maybe_custom_format(format)) {
-        Ok(res) => res,
+        Ok(res) => {
+            if let Ok(res) = res {
+                Some(res)
+            } else {
+                None
+            }
+        }
         Err(_) => None,
     }
 }
 
-pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
+// r#"\f\o\o;;;\b\a\r"#
+pub fn maybe_custom_format(format: &str) -> anyhow::Result<Vec<Option<NFormat>>> {
     let fmt: Vec<char> = format.chars().collect();
 
     let mut nformats: Vec<Option<NFormat>> = Vec::new();
@@ -374,83 +452,66 @@ pub fn maybe_custom_format(format: &str) -> Option<CellFormat> {
             if ch.eq(&';') {
                 nformats.push(None);
                 start += 1;
-            } else {
-                match get_prefix_suffix(&fmt[start..], false) {
-                    Ok((prefix, p_locale, offset)) => {
-                        start += offset;
-                        match parse_value_format(&fmt[start..]) {
-                            Ok((offset, fformat)) => {
-                                start += offset;
-                                if let Some(ch) = fmt.get(start) {
-                                    if ch.eq(&';') {
-                                        nformats.push(Some(NFormat::new(
-                                            prefix, None, p_locale, fformat,
-                                        )));
-                                        start += 1;
-                                        continue;
-                                    } else {
-                                        match get_prefix_suffix(&fmt[start..], false) {
-                                            Ok((suffix, s_locale, offset)) => {
-                                                nformats.push(Some(NFormat::new(
-                                                    prefix,
-                                                    suffix,
-                                                    p_locale.or(s_locale),
-                                                    fformat,
-                                                )));
-                                                start += offset;
-                                                if let Some(ch) = fmt.get(start) {
-                                                    if ch.eq(&';') {
-                                                        start += 1;
-                                                        continue;
-                                                    }
-                                                } else {
-                                                    return Some(CellFormat::NumberFormat {
-                                                        nformats,
-                                                    });
-                                                }
-                                            }
-                                            Err(_c) => {
-                                                return None;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    nformats
-                                        .push(Some(NFormat::new(prefix, None, p_locale, fformat)));
-                                    break;
-                                }
-                            }
-                            Err(_c) => {
-                                break;
-                            }
-                        }
-                    }
-                    Err(_c) => {
-                        break;
-                    }
-                }
+                continue;
             }
         } else {
             break;
         }
+
+        let ReadResult {
+            result: (prefix, p_locale),
+            offset,
+            end,
+        } = get_fix(&fmt[start..], false)?;
+
+        start += offset;
+
+        if end {
+            nformats.push(Some(NFormat::new(prefix, None, p_locale, None)));
+            continue;
+        }
+
+        let ReadResult {
+            result: fformat,
+            offset,
+            end,
+        } = parse_value_format(&fmt[start..])?;
+        start += offset;
+
+        if end {
+            nformats.push(Some(NFormat::new(prefix, None, p_locale, fformat)));
+            continue;
+        }
+
+        let ReadResult {
+            result: (suffix, s_locale),
+            offset,
+            end: _,
+        } = get_fix(&fmt[start..], false)?;
+        start += offset;
+
+        nformats.push(Some(NFormat::new(
+            prefix,
+            suffix,
+            p_locale.or(s_locale),
+            fformat,
+        )));
     }
 
     if nformats.len() > 0 {
-        return Some(CellFormat::NumberFormat { nformats });
+        return Ok(nformats);
     }
 
-    // '/' and ':' are not natively displayed anymore
-    // let _x = vec![
-    //     '$', '+', '-', '(', ')', '{', '}', '<', '>', '=', '^', '\'', '!', '&', '~',
-    // ];
-
-    return None;
+    Err(anyhow!(
+        "No valid format found for fmt: {}",
+        fmt.iter().collect::<String>()
+    ))
 }
 
 fn decode_excell_format(
     fmt: &[char],
     locale: Option<&'static LocaleData>,
-) -> Option<(String, usize)> {
+) -> anyhow::Result<ReadResult<String>> {
     fn get_date_separator(d_fmt: &str) -> char {
         // FIXME
         for ch in d_fmt.chars() {
@@ -466,7 +527,7 @@ fn decode_excell_format(
         count: usize,
         am_pm: bool,
         months_processed: bool,
-    ) -> Result<&'static str, char> {
+    ) -> anyhow::Result<&'static str> {
         //https://support.microsoft.com/en-us/office/number-format-codes-5026bbd6-04bc-48cd-bf33-80f18b4eae68
         match (ch, count, am_pm) {
             // FIXME, 3 should map to "%a"
@@ -507,7 +568,7 @@ fn decode_excell_format(
             ('s', 1, ..) => Ok("%-S"),
             ('s', 2, false) => Ok("%S"),
             ('s', 2, true) => Ok("%S %p"),
-            _ => Err(ch),
+            _ => Err(anyhow!("Unknown char '{}'", ch)),
         }
     }
 
@@ -545,11 +606,9 @@ fn decode_excell_format(
                     let count = collect_same_char(*ch, &fmt[index..]);
                     index += count;
 
-                    if let Ok(f) = get_strftime_code(*ch, count, false, months_processed) {
-                        format.push_str(f);
-                    } else {
-                        return None;
-                    }
+                    let f = get_strftime_code(*ch, count, false, months_processed)?;
+                    format.push_str(f);
+
                     if ch.eq(&'m') {
                         months_processed = true;
                     }
@@ -563,11 +622,16 @@ fn decode_excell_format(
                         continue;
                     }
                 }
-                ';' => break,
+                ';' => return Ok(ReadResult::new(format, index, true)),
                 'A' => {
                     let current_len = fmt[index..].len();
+                    // 3 is minimum to have valid AM/PM marker
                     if current_len < 3 {
-                        return None;
+                        // return None;
+                        return Err(anyhow!(
+                            "Bad format, fmt:  {}",
+                            fmt.iter().collect::<String>()
+                        ));
                     }
                     if fmt[index..index + 3].eq(&A_P) {
                         format.push_str("%p");
@@ -578,12 +642,21 @@ fn decode_excell_format(
                         index += 5;
                         continue;
                     } else {
-                        return None;
+                        return Err(anyhow!(
+                            "Bad format, fmt:  {}",
+                            fmt.iter().collect::<String>()
+                        ));
                     }
                 }
                 '/' => format.push(date_separator),
                 ':' => format.push(':'),
-                _ => return None,
+                _ => {
+                    return Err(anyhow!(
+                        "Unknown char {} in fmt:  {}",
+                        ch,
+                        fmt.iter().collect::<String>()
+                    ))
+                }
             }
         } else {
             break;
@@ -591,48 +664,68 @@ fn decode_excell_format(
         index += 1;
     }
 
-    Some((format, index))
+    Ok(ReadResult::new(format, index, false))
 }
 
 pub fn panic_safe_maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
     match std::panic::catch_unwind(|| maybe_custom_date_format(fmt)) {
-        Ok(res) => res,
+        Ok(res) => {
+            if let Ok(res) = res {
+                Some(res)
+            } else {
+                None
+            }
+        }
         Err(_) => None,
     }
 }
 
-pub fn maybe_custom_date_format(fmt: &str) -> Option<DTFormat> {
+pub fn maybe_custom_date_format(fmt: &str) -> anyhow::Result<DTFormat> {
     let fmt: Vec<_> = fmt.chars().collect();
 
-    match get_prefix_suffix(&fmt, true) {
-        Ok((prefix, locale, index)) => {
-            let date_locale = if let Some(locale_index) = locale {
-                get_time_locale(locale_index)
-            } else {
-                None
-            };
+    let ReadResult {
+        result: (prefix, locale),
+        offset: index,
+        end: _,
+    } = get_fix(&fmt, true)?;
 
-            if let Some((format, offset)) = decode_excell_format(&fmt[index..], date_locale) {
-                return match get_prefix_suffix(&fmt[index + offset..], true) {
-                    Ok((suffix, _, _)) => Some(DTFormat {
-                        locale,
-                        prefix,
-                        format,
-                        suffix,
-                    }),
-                    Err(_c) => None,
-                };
-            }
+    let date_locale = if let Some(locale_index) = locale {
+        get_time_locale(locale_index)
+    } else {
+        None
+    };
 
-            None
-        }
-        Err(_c) => None,
+    let ReadResult {
+        result: format,
+        offset,
+        end,
+    } = decode_excell_format(&fmt[index..], date_locale)?;
+    if end {
+        return Ok(DTFormat {
+            locale,
+            prefix,
+            format,
+            suffix: None,
+        });
     }
+
+    let ReadResult {
+        result: (suffix, _),
+        offset: _,
+        end: _,
+    } = get_fix(&fmt[index + offset..], true)?;
+
+    Ok(DTFormat {
+        locale,
+        prefix,
+        format,
+        suffix,
+    })
 }
 
 pub fn parse_excell_format(format: &str, default: CellFormat) -> CellFormat {
-    if let Some(cf) = panic_safe_maybe_custom_format(format) {
-        return cf;
+    if let Some(nformats) = panic_safe_maybe_custom_format(format) {
+        return CellFormat::NumberFormat { nformats };
     }
 
     if let Some(cf) = panic_safe_maybe_custom_date_format(format) {
@@ -640,4 +733,92 @@ pub fn parse_excell_format(format: &str, default: CellFormat) -> CellFormat {
     }
 
     default
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        custom_format::{maybe_custom_format, read_quoted_value},
+        formats::{FFormat, FFormatType, NFormat, ValueFormat},
+    };
+
+    #[test]
+    fn test_read_quote_1() {
+        assert_eq!(
+            read_quoted_value(&"&quot;foo&quot;bla".chars().collect::<Vec<_>>()).unwrap(),
+            ("foo".to_string(), 14)
+        );
+    }
+
+    #[test]
+    fn test_read_quote_2() {
+        assert_eq!(
+            read_quoted_value(&"&quot;&#xA3; foo&quot;bla".chars().collect::<Vec<_>>()).unwrap(),
+            ("£ foo".to_string(), 21)
+        );
+    }
+
+    #[test]
+    fn test_custom_format_1() {
+        assert_eq!(
+            maybe_custom_format("[$&#xA3;-809]#,##0.0000;#,##0.000;;").unwrap(),
+            vec![
+                Some(NFormat {
+                    prefix: Some("£".to_owned()),
+                    suffix: None,
+                    locale: Some(2057),
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 4,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3,
+                    }))
+                }),
+                Some(NFormat {
+                    prefix: None,
+                    suffix: None,
+                    locale: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 3,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3,
+                    }))
+                }),
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_custom_format_2() {
+        assert_eq!(maybe_custom_format(";;;").unwrap(), vec![None, None, None]);
+    }
+
+    #[test]
+    fn test_custom_format_3() {
+        assert_eq!(
+            maybe_custom_format(r#"\f\o\o;;;\b\a\r"#).unwrap(),
+            vec![
+                Some(NFormat {
+                    prefix: Some("foo".to_owned()),
+                    suffix: None,
+                    locale: None,
+                    value_format: None
+                }),
+                None,
+                None,
+                Some(NFormat {
+                    prefix: Some("bar".to_owned()),
+                    suffix: None,
+                    locale: None,
+                    value_format: None
+                })
+            ]
+        );
+    }
 }

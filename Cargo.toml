@@ -24,6 +24,7 @@ pure-rust-locales = "0.8.0"
 quick-xml = { version = "0.31", features = ["encoding"] }
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 chrono = { version = "0.4", features = ["serde", "unstable-locales"]}
+anyhow = "1.0.79"
 
 [dev-dependencies]
 glob = "0.3"

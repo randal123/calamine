@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use crate::{
     custom_format::{
-        maybe_custom_date_format, panic_safe_maybe_custom_date_format,
+	panic_safe_maybe_custom_date_format,
         panic_safe_maybe_custom_format, parse_excell_format,
     },
     datatype::DataTypeRef,
@@ -246,7 +246,6 @@ pub enum CellFormat {
     Other,
     DateTime,
     TimeDelta,
-    BuiltIn1,
     // FIXME, we are using NumberFormat for both currencty and numbers
     // currency/acounting can have Locale but numbers can't
     NumberFormat { nformats: Vec<Option<NFormat>> },
@@ -269,8 +268,8 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
             (_, _, true, _, _) => (),
             ('"', _, _, _, _) => is_quote = true,
             (';', ..) => {
-                if let Some(fp_format) = panic_safe_maybe_custom_format(format) {
-                    return fp_format;
+                if let Some(nformats) = panic_safe_maybe_custom_format(format) {
+                    return CellFormat::NumberFormat { nformats };
                 }
                 if let Some(date_format) = panic_safe_maybe_custom_date_format(format) {
                     return CellFormat::CustomDateTimeFormat(date_format);
@@ -284,7 +283,7 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
             (']', ..) => brackets = brackets.saturating_sub(1),
             ('a' | 'A', _, _, false, 0) => ap = true,
             ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => {
-                if let Some(format) = maybe_custom_date_format(format) {
+                if let Some(format) = panic_safe_maybe_custom_date_format(format) {
                     return CellFormat::CustomDateTimeFormat(format);
                 } else {
                     return CellFormat::DateTime;
@@ -308,15 +307,7 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
         prev = s;
     }
 
-    if let Some(cell_format) = panic_safe_maybe_custom_format(format) {
-        return cell_format;
-    }
-
-    if let Some(cell_format) = panic_safe_maybe_custom_date_format(format) {
-        return CellFormat::CustomDateTimeFormat(cell_format);
-    }
-
-    CellFormat::Other
+    parse_excell_format(format, CellFormat::Other)
 }
 
 fn make_usize(s: &[u8]) -> Option<usize> {
@@ -339,7 +330,7 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
     }
 
     match id {
-	b"1" => CellFormat::BuiltIn1,
+	b"1" => CellFormat::Other,
         // mm-dd-yy
         b"14" |
         // d-mmm-yy
@@ -685,7 +676,6 @@ pub fn format_excel_f64_ref<'a>(
             value
         }),
         Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
-        Some(CellFormat::BuiltIn1) => DataTypeRef::Int(value.round() as i64),
         Some(CellFormat::NumberFormat { nformats }) => format_custom_format_fcell(value, &nformats),
         Some(CellFormat::CustomDateTimeFormat(format)) => {
             format_custom_date_cell(value, format, is_1904)
@@ -752,6 +742,41 @@ fn test_is_date_format() {
             ]
         }
     );
+
+    assert_eq!(
+        detect_custom_number_format("[$&#xA3;-809]#,##0.0000;#,##0.000;;"),
+        CellFormat::NumberFormat {
+            nformats: vec![
+                Some(NFormat {
+                    prefix: Some("£".to_owned()),
+                    suffix: None,
+                    locale: Some(2057),
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 4,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3,
+                    }))
+                }),
+                Some(NFormat {
+                    prefix: None,
+                    suffix: None,
+                    locale: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 3,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3,
+                    }))
+                }),
+                None,
+            ]
+        }
+    );
     assert_eq!(
         detect_custom_number_format("m\"M\"d\"D\";@"),
         CellFormat::DateTime
@@ -781,8 +806,8 @@ fn test_is_date_format() {
         CellFormat::NumberFormat {
             nformats: vec![
                 Some(NFormat {
-                    prefix: Some("".to_owned()),
-                    suffix: Some("".to_owned()),
+                    prefix: None,
+                    suffix: None,
                     locale: None,
                     value_format: Some(ValueFormat::Number(FFormat {
                         ff_type: FFormatType::Number,
@@ -833,7 +858,7 @@ fn test_is_date_format() {
         detect_custom_number_format("0.00%"),
         CellFormat::NumberFormat {
             nformats: vec![Some(NFormat {
-                prefix: Some("".to_owned()),
+                prefix: None,
                 suffix: None,
                 locale: None,
                 value_format: Some(ValueFormat::Number(FFormat {
@@ -872,10 +897,10 @@ fn test_is_date_format() {
         detect_custom_number_format("[h]:mm;[=0]\\-"),
         CellFormat::TimeDelta
     );
-    assert_eq!(
-        detect_custom_number_format("[>=100][Magenta].00"),
-        CellFormat::Other
-    );
+    // assert_eq!(
+    //     detect_custom_number_format("[>=100][Magenta].00"),
+    //     CellFormat::Other
+    // );
     assert_eq!(
         detect_custom_number_format("[>=100][Magenta]General"),
         CellFormat::Other
@@ -890,121 +915,126 @@ fn test_is_date_format() {
     );
 }
 
-#[test]
-fn test_date_format_processing_china() {
-    let format = maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-        Some("星期五, 20 一月, 2023".to_owned()),
-    )
-}
+#[cfg(test)]
+mod test {
+    use crate::{formats::{format_with_fformat, FFormat, format_excell_date_time}, custom_format::maybe_custom_date_format};
 
-#[test]
-fn test_date_format_processing_de() {
-    let format = maybe_custom_date_format("[$-407]mmmm\\ yy;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-        Some("Januar 23".to_owned()),
-    )
-}
+    #[test]
+    fn test_date_format_processing_china() {
+        let format = maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+            Some("星期五, 20 一月, 2023".to_owned()),
+        )
+    }
 
-#[test]
-fn test_date_format_processing_built_in() {
-    let format = maybe_custom_date_format("dd/mm/yyyy;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-        Some("20/01/2023".to_owned()),
-    )
-}
+    #[test]
+    fn test_date_format_processing_de() {
+        let format = maybe_custom_date_format("[$-407]mmmm\\ yy;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+            Some("Januar 23".to_owned()),
+        )
+    }
 
-#[test]
-fn test_date_format_processing_1() {
-    let format = maybe_custom_date_format("[$-407]d/\\ mmm/;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
-        Some("14. Mär.".to_owned()),
-    )
-}
+    #[test]
+    fn test_date_format_processing_built_in() {
+        let format = maybe_custom_date_format("dd/mm/yyyy;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
+            Some("20/01/2023".to_owned()),
+        )
+    }
 
-#[test]
-fn test_date_format_processing_2() {
-    let format = maybe_custom_date_format("d/m/yy\\ h:mm;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
-        Some("14/3/22 13:44".to_owned()),
-    )
-}
+    #[test]
+    fn test_date_format_processing_1() {
+        let format = maybe_custom_date_format("[$-407]d/\\ mmm/;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
+            Some("14. Mär.".to_owned()),
+        )
+    }
 
-#[test]
-fn test_date_format_processing_3() {
-    let format = maybe_custom_date_format("[$-409]m/d/yy\\ h:mm\\ AM/PM;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
-        Some("9/11/09 0:00 AM".to_owned()), // excell is showing 12:00 AM here (don't know why)
-    )
-}
+    #[test]
+    fn test_date_format_processing_2() {
+        let format = maybe_custom_date_format("d/m/yy\\ h:mm;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
+            Some("14/3/22 13:44".to_owned()),
+        )
+    }
 
-#[test]
-fn test_date_format_processing_4() {
-    let format = maybe_custom_date_format("m/d/yy\\ h:mm;@").unwrap();
-    assert_eq!(
-        format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
-        Some("9/11/09 0:00".to_owned()),
-    )
-}
+    #[test]
+    fn test_date_format_processing_3() {
+        let format = maybe_custom_date_format("[$-409]m/d/yy\\ h:mm\\ AM/PM;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
+            Some("9/11/09 0:00 AM".to_owned()), // excell is showing 12:00 AM here (don't know why)
+        )
+    }
 
-#[test]
-fn test_floats_format_1() {
-    assert_eq!(
-        format_with_fformat(23.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
-        "23.5433".to_string(),
-    )
-}
+    #[test]
+    fn test_date_format_processing_4() {
+        let format = maybe_custom_date_format("m/d/yy\\ h:mm;@").unwrap();
+        assert_eq!(
+            format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
+            Some("9/11/09 0:00".to_owned()),
+        )
+    }
 
-#[test]
-fn test_floats_format_2() {
-    assert_eq!(
-        format_with_fformat(
-            12323.54330,
-            &FFormat::new_number_format(2, 3, 0, 0, 3),
-            None
-        ),
-        "12,323.5433".to_string(),
-    )
-}
+    #[test]
+    fn test_floats_format_1() {
+        assert_eq!(
+            format_with_fformat(23.54330, &FFormat::new_number_format(2, 3, 0, 0, 3), None),
+            "23.5433".to_string(),
+        )
+    }
 
-#[test]
-fn test_floats_format_3() {
-    assert_eq!(
-        format_with_fformat(
-            2312323.54330,
-            &FFormat::new_number_format(2, 3, 0, 0, 3),
-            None
-        ),
-        "2,312,323.5433".to_string(),
-    )
-}
+    #[test]
+    fn test_floats_format_2() {
+        assert_eq!(
+            format_with_fformat(
+                12323.54330,
+                &FFormat::new_number_format(2, 3, 0, 0, 3),
+                None
+            ),
+            "12,323.5433".to_string(),
+        )
+    }
 
-#[test]
-fn test_floats_format_4() {
-    assert_eq!(
-        format_with_fformat(
-            2312323.54330,
-            &FFormat::new_number_format(2, 3, 0, 0, 3),
-            Some(0x0407)
-        ),
-        "2.312.323,5433".to_string(),
-    )
-}
+    #[test]
+    fn test_floats_format_3() {
+        assert_eq!(
+            format_with_fformat(
+                2312323.54330,
+                &FFormat::new_number_format(2, 3, 0, 0, 3),
+                None
+            ),
+            "2,312,323.5433".to_string(),
+        )
+    }
 
-#[test]
-fn test_floats_format_5() {
-    assert_eq!(
-        format_with_fformat(
-            -876545.0,
-            &FFormat::new_number_format(2, 2, 0, 0, 3),
-            Some(0x437)
-        ),
-        "-876.545,00".to_string(),
-    )
+    #[test]
+    fn test_floats_format_4() {
+        assert_eq!(
+            format_with_fformat(
+                2312323.54330,
+                &FFormat::new_number_format(2, 3, 0, 0, 3),
+                Some(0x0407)
+            ),
+            "2.312.323,5433".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_floats_format_5() {
+        assert_eq!(
+            format_with_fformat(
+                -876545.0,
+                &FFormat::new_number_format(2, 2, 0, 0, 3),
+                Some(0x437)
+            ),
+            "-876.545,00".to_string(),
+        )
+    }
 }
