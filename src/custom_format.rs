@@ -6,9 +6,6 @@ use crate::{
 };
 use anyhow::anyhow;
 
-const QUOTE: [char; 6] = ['&', 'q', 'u', 'o', 't', ';'];
-const HEX_PREFIX: [char; 3] = ['&', '#', 'x'];
-
 #[derive(Debug)]
 struct ReadResult<T> {
     result: T,
@@ -24,90 +21,6 @@ impl<T> ReadResult<T> {
             end,
         }
     }
-}
-
-// [$&#xA3;-809]#,##0.0000 -> &#xA3;
-fn read_hex_format(fmt: &[char]) -> anyhow::Result<ReadResult<char>> {
-    let mut offset = 3;
-    let mut shift = 0;
-
-    if fmt.len() >= 5 && fmt[0..=2].eq(&HEX_PREFIX) {
-        let mut sc: u32 = 0;
-
-        let Some(end_index) = fmt.iter().position(|c| c.eq(&';')) else {
-            return Err(anyhow!(
-                "Missing ';' in fmt: {}",
-                fmt.iter().collect::<String>()
-            ));
-        };
-
-        for i in (3..end_index).rev() {
-            let c = fmt[i];
-
-            sc += c.to_digit(16).unwrap() << shift;
-            shift += 4;
-            offset += 1
-        }
-
-        if let Ok(ch) = TryInto::<char>::try_into(sc) {
-            return Ok(ReadResult::new(ch, offset, false));
-        } else {
-            return Err(anyhow!(
-                "Can't make char out of {}, fmt: {}",
-                sc,
-                fmt.iter().collect::<String>()
-            ));
-        }
-    }
-    Err(anyhow!(
-        "Missing '&#x' in fmt: {}",
-        fmt.iter().collect::<String>()
-    ))
-}
-
-fn read_quoted_value(fmt: &[char]) -> anyhow::Result<(String, usize)> {
-    let mut index = QUOTE.len();
-    let mut s = String::new();
-
-    if fmt.len() >= QUOTE.len() && fmt[0..QUOTE.len()].eq(&QUOTE) {
-        loop {
-            if let Some(c) = fmt.get(index) {
-                match c {
-                    '&' => {
-                        let Some(nc) = fmt.get(index + 1) else {
-                            return Err(anyhow!(
-                                "Missing char in fmt: {}",
-                                fmt.iter().collect::<String>()
-                            ));
-                        };
-                        if nc.eq(&'#') {
-                            let ReadResult { result, offset, .. } = read_hex_format(&fmt[index..])?;
-                            s.push(result);
-                            index += offset;
-                        } else if fmt
-                            .get(index..index + QUOTE.len())
-                            .map_or(false, |v| v.eq(&QUOTE))
-                        {
-                            return Ok((s, index + QUOTE.len() - 1));
-                        }
-                    }
-
-                    ch => s.push(*ch),
-                }
-            } else {
-                return Err(anyhow!(
-                    "Missing char in fmt: {}",
-                    fmt.iter().collect::<String>()
-                ));
-            }
-            index += 1;
-        }
-    }
-
-    return Err(anyhow!(
-        "Missing '&quot;' in fmt: {}",
-        fmt.iter().collect::<String>()
-    ));
 }
 
 // [$&#xA3;-809]
@@ -140,20 +53,8 @@ fn read_locale(fmt: &[char]) -> anyhow::Result<ReadResult<usize>> {
 }
 
 fn is_condition(fmt: &[char]) -> Option<ConditionOp> {
-    if fmt.len() >= 3 {
-        let fmt = &fmt[0..3];
-        if fmt.eq(&['&', 'g', 't']) {
-            return Some(ConditionOp::Gt);
-        } else if fmt.eq(&['&', 'l', 't']) {
-            return Some(ConditionOp::Lt);
-        } else if fmt.eq(&['&', 'g', 'e']) {
-            return Some(ConditionOp::Ge);
-        } else if fmt.eq(&['&', 'l', 'e']) {
-            return Some(ConditionOp::Le);
-        }
-    }
-
-    None
+    // FIXME
+    todo!()
 }
 
 fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
@@ -201,79 +102,29 @@ fn get_fix(
     let mut p = String::new();
     let mut escaped = false;
     let mut in_brackets = false;
+    let mut in_quotes = false;
     let mut index = 0;
     let mut locale = None;
+
+    let mut condition: Option<Condition> = None;
     loop {
         if let Some(c) = fmt.get(index) {
-            match (c, escaped, in_brackets) {
-                // inside of brackets, hex value
-                ('&', false, true) => {
-                    if let Some(nc) = fmt.get(index + 1) {
-                        if nc.eq(&'#') {
-                            let ReadResult { result, offset, .. } = read_hex_format(&fmt[index..])?;
-                            p.push(result);
-                            index += offset;
-                        } else {
-                            // FIXME, probably there are more options after &
-                            return Err(anyhow!(
-                                "Unknown char '{}' in fmt: {}",
-                                *nc,
-                                fmt[index + 1..].iter().collect::<String>()
-                            ));
-                        }
-                    } else {
-                        return Err(anyhow!(
-                            "Missing char in fmt: {}, index {}",
-                            fmt.iter().collect::<String>(),
-                            index
-                        ));
-                    }
-                }
-                // FIXME, escaped &, not sure does this work ?
-                // currently this is the same code as above but probably shouldn't be
-                ('&', true, false) => {
-                    if let Some(nc) = fmt.get(index + 1) {
-                        if nc.eq(&'#') {
-                            let ReadResult { result, offset, .. } =
-                                read_hex_format(&fmt[index as usize..])?;
-                            p.push(result);
-                            index += offset;
-                        } else {
-                            // FIXME, probably there are more options after '&', not just '#'
-                            return Err(anyhow!(
-                                "Unknown char '{}' in fmt: {}",
-                                *nc,
-                                fmt[index + 1..].iter().collect::<String>()
-                            ));
-                        }
-                    } else {
-                        return Err(anyhow!(
-                            "Missing char in fmt: {}, index {}",
-                            fmt.iter().collect::<String>(),
-                            index
-                        ));
-                    }
-                }
-                ('&', false, false) => {
-                    // FIXME, read
-                    if fmt[index..index + 6].eq(&QUOTE) {
-                        if let Ok((s, offset)) = read_quoted_value(&fmt[index..]) {
-                            p.push_str(&s);
-                            index += offset;
-                        }
-                    }
-                }
+            match (c, escaped, in_brackets, in_quotes) {
+		// FIXME, " when in_brackets == true ,
+		// looks like we can't have " inside of []
+                ('"', _, _, true) => in_quotes = false,
+                (_, _, _, true) => p.push(*c),
                 // escaped char
-                (_, true, false) => {
+                (_, true, false, ..) => {
                     p.push(*c);
                     escaped = false;
                 }
                 // turn on escape
-                ('\\', false, false) => escaped = true,
+                ('\\', false, false, ..) => escaped = true,
                 // inside of brackets
-                ('\\', _, true) => p.push(*c),
+                ('\\', _, true, ..) => p.push(*c),
                 // open brackets
-                ('[', false, false) => {
+                ('[', false, false, ..) => {
                     // FIXME, we look for $ to confirm bracket mode ?
                     //if not this is color related or some other metadata, we can skip this
                     if let Some(nc) = fmt.get(index + 1) {
@@ -282,15 +133,24 @@ fn get_fix(
                             // skip $
                             index += 1;
                         } else if is_condition(fmt).is_some() {
-			    // FIXME
-			    if let Ok(ReadResult { result, offset, end }) = read_condition(fmt) {
-				
-			    } else {
-			    }
+                            // FIXME
+                            if let Ok(ReadResult {
+                                result,
+                                offset,
+                                end,
+                            }) = read_condition(fmt)
+                            {
+                                condition = Some(result);
+                                index += offset;
+                            } else {
+                                // FIXME
+                                todo!()
+                            }
                         } else {
                             // this is color or similar thing, skip it
                             if let Some(close_bracket_index) =
-                                &fmt[index + 1..].iter().position(|tc| tc.eq(&']')) // FIXME, ']' can be quoted ??
+                                &fmt[index + 1..].iter().position(|tc| tc.eq(&']'))
+                            // FIXME, ']' can be quoted ??
                             {
                                 index += close_bracket_index + 2;
                                 continue;
@@ -310,19 +170,19 @@ fn get_fix(
                     }
                 }
                 // open bracket inside of brackets
-                ('[', _, true) => {
+                ('[', _, true, ..) => {
                     p.push(*c);
                 }
                 // closing brackets
-                (']', _, true) => {
+                (']', _, true, ..) => {
                     in_brackets = false;
                 }
                 // when not escaped and not inside of brackets start parsing number format or @ text format
-                ('#' | '0' | '?' | ',' | '@' | '.', false, false) => {
+                ('#' | '0' | '?' | ',' | '@' | '.', false, false, ..) => {
                     return Ok(ReadResult::new((maybe_string(p), locale), index, false));
                 }
                 // this is when we are parsing date format
-                ('y' | 'm' | 'd' | 'h' | 's' | 'a', false, false) => {
+                ('y' | 'm' | 'd' | 'h' | 's' | 'a', false, false, ..) => {
                     if date_format {
                         return Ok(ReadResult::new((maybe_string(p), locale), index, false));
                     } else {
@@ -345,8 +205,12 @@ fn get_fix(
                 ('_', false, false, ..) => {
                     index += 1;
                 }
+                ('"', false, false, ..) => {
+                    in_quotes = true;
+                }
+
                 // dash inside of brackets signaling LOCALE ??
-                ('-', _, true) => {
+                ('-', _, true, ..) => {
                     // FIXME, skip to the closing bracket
                     // FIXME, now sure that - is actually doing but looks like it's allways at the end of bracket signaling LOCALE
                     if let Ok(ReadResult { result, offset, .. }) = read_locale(&fmt[index + 1..]) {
@@ -354,7 +218,8 @@ fn get_fix(
                         locale = Some(result);
                     } else {
                         if let Some(close_bracket_index) =
-                            &fmt[index..].iter().position(|tc| tc.eq(&']')) // FIXME, ] can be quoted ?
+                            &fmt[index..].iter().position(|tc| tc.eq(&']'))
+                        // FIXME, ] can be quoted ?
                         {
                             index += close_bracket_index;
                             continue;
@@ -364,9 +229,9 @@ fn get_fix(
                     }
                 }
                 // inside of brackets
-                (_, _, true) => p.push(*c),
+                (_, _, true, ..) => p.push(*c),
                 // semi-colon separates two number formats
-                (';', false, false) => {
+                (';', false, false, ..) => {
                     return Ok(ReadResult::new((maybe_string(p), locale), index + 1, true));
                 }
                 (_, ..) => {
@@ -794,7 +659,7 @@ pub fn parse_excell_format(format: &str, default: CellFormat) -> CellFormat {
 #[cfg(test)]
 mod tests {
     use crate::{
-        custom_format::{maybe_custom_format, read_quoted_value},
+        custom_format::maybe_custom_format,
         formats::{
             detect_custom_number_format, format_excel_f64_ref, FFormat, FFormatType, NFormat,
             ValueFormat,
@@ -802,14 +667,14 @@ mod tests {
         DataType,
     };
 
-    use super::parse_excell_format;
-
+    #[allow(dead_code)]
     fn parse_f64_cell(value: f64, fmt: &str) -> DataType {
         let format = detect_custom_number_format(fmt);
         let res: DataType = format_excel_f64_ref(value, Some(&format), false).into();
         res
     }
 
+    #[allow(dead_code)]
     fn parse_str_cell(value: &str, fmt: &str) -> String {
         let format = detect_custom_number_format(fmt);
         dbg!(&format);
@@ -824,36 +689,39 @@ mod tests {
                             nformat.suffix.as_deref().unwrap_or(""),
                         );
                     } else {
-                        return "".to_string();
+                        return "a".to_string();
                     }
                 } else {
-                    return "".to_string();
+                    return "b".to_string();
                 }
             }
             _ => panic!("Should not happen"),
         }
     }
 
-    #[test]
-    fn test_read_quote_1() {
-        assert_eq!(
-            read_quoted_value(&"&quot;foo&quot;bla".chars().collect::<Vec<_>>()).unwrap(),
-            ("foo".to_string(), 14)
-        );
-    }
+    // #[test]
+    // fn test_read_quote_1() {
+    //     assert_eq!(
+    //         read_quoted_value(&"&quot;foo&quot;bla".chars().collect::<Vec<_>>()).unwrap(),
+    //         ("foo".to_string(), 14)
+    //     );
+    // }
 
-    #[test]
-    fn test_read_quote_2() {
-        assert_eq!(
-            read_quoted_value(&"&quot;&#xA3; foo&quot;bla".chars().collect::<Vec<_>>()).unwrap(),
-            ("£ foo".to_string(), 21)
-        );
-    }
+    // #[test]
+    // fn test_read_quote_2() {
+    //     assert_eq!(
+    //         read_quoted_value(&"&quot;&#xA3; foo&quot;bla".chars().collect::<Vec<_>>()).unwrap(),
+    //         ("£ foo".to_string(), 21)
+    //     );
+    // }
 
     #[test]
     fn test_custom_format_1() {
         assert_eq!(
-            maybe_custom_format("[$&#xA3;-809]#,##0.0000;#,##0.000;;").unwrap(),
+            maybe_custom_format(&html_escape::decode_html_entities(
+                "[$&#xA3;-809]#,##0.0000;#,##0.000;;"
+            ))
+            .unwrap(),
             vec![
                 Some(NFormat {
                     prefix: Some("£".to_owned()),
@@ -917,9 +785,9 @@ mod tests {
     #[test]
     fn test_custom_format_4() {
         assert_eq!(
-            maybe_custom_format(
+            maybe_custom_format(&html_escape::decode_html_entities(
                 r#"&quot;foo&quot;;&quot;bar&quot;;&quot;baz&quot;;&quot;bla&quot;"#
-            )
+            ),)
             .unwrap(),
             vec![
                 Some(NFormat {

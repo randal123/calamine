@@ -252,7 +252,7 @@ pub struct Condition {
 
 impl Condition {
     pub fn new(op: ConditionOp, value: f64) -> Self {
-	Self { op, value }
+        Self { op, value }
     }
 }
 
@@ -263,7 +263,6 @@ pub struct DTFormat {
     pub format: String,
     pub suffix: Option<String>,
 }
-
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CellFormat {
@@ -278,13 +277,15 @@ pub enum CellFormat {
 }
 
 /// Check excel number format is datetime
-pub fn detect_custom_number_format(format: &str) -> CellFormat {
+pub fn detect_custom_number_format(fmt: &str) -> CellFormat {
     let mut escaped = false;
     let mut is_quote = false;
     let mut brackets = 0u8;
     let mut prev = ' ';
     let mut hms = false;
     let mut ap = false;
+
+    let format = html_escape::decode_html_entities(fmt);
 
     // if format.eq("General") || format.eq("@") {
     //     return CellFormat::General;
@@ -298,10 +299,10 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
             (_, _, true, _, _) => (),
             ('"', _, _, _, _) => is_quote = true,
             (';', ..) => {
-                if let Some(nformats) = panic_safe_maybe_custom_format(format) {
+                if let Some(nformats) = panic_safe_maybe_custom_format(&format) {
                     return CellFormat::NumberFormat { nformats };
                 }
-                if let Some(date_format) = panic_safe_maybe_custom_date_format(format) {
+                if let Some(date_format) = panic_safe_maybe_custom_date_format(&format) {
                     return CellFormat::CustomDateTimeFormat(date_format);
                 }
 
@@ -313,14 +314,14 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
             (']', ..) => brackets = brackets.saturating_sub(1),
             ('a' | 'A', _, _, false, 0) => ap = true,
             ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => {
-                if let Some(format) = panic_safe_maybe_custom_date_format(format) {
+                if let Some(format) = panic_safe_maybe_custom_date_format(&format) {
                     return CellFormat::CustomDateTimeFormat(format);
                 } else {
                     return CellFormat::DateTime;
                 }
             }
             ('d' | 'm' | 'h' | 'y' | 's' | 'D' | 'M' | 'H' | 'Y' | 'S', _, _, false, 0) => {
-                if let Some(format) = panic_safe_maybe_custom_date_format(format) {
+                if let Some(format) = panic_safe_maybe_custom_date_format(&format) {
                     return CellFormat::CustomDateTimeFormat(format);
                 } else {
                     return CellFormat::DateTime;
@@ -337,7 +338,7 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
         prev = s;
     }
 
-    parse_excell_format(format, CellFormat::Other)
+    parse_excell_format(&format, CellFormat::Other)
 }
 
 fn make_usize(s: &[u8]) -> Option<usize> {
@@ -919,7 +920,21 @@ fn test_is_date_format() {
 
     assert_eq!(
         detect_custom_number_format("#,##0.0####\" YMD\""),
-        CellFormat::Other
+        CellFormat::NumberFormat {
+            nformats: vec![Some(NFormat {
+                prefix: None,
+                suffix: Some(" YMD".to_string()),
+                locale: None,
+                value_format: Some(ValueFormat::Number(FFormat {
+                    ff_type: FFormatType::Number,
+                    significant_digits: 4,
+                    insignificant_zeros: 1,
+                    p_significant_digits: 3,
+                    p_insignificant_zeros: 1,
+                    group_separator_count: 3
+                }))
+            })]
+        }
     );
     assert_eq!(detect_custom_number_format("[h]"), CellFormat::TimeDelta);
     assert_eq!(detect_custom_number_format("[ss]"), CellFormat::TimeDelta);
@@ -955,77 +970,109 @@ fn test_is_date_format() {
     );
     assert_eq!(
         detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
-        CellFormat::Other
+        CellFormat::NumberFormat {
+            nformats: vec![
+                Some(NFormat {
+                    prefix: None,
+                    suffix: Some(" H".to_string()),
+                    locale: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 2,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3
+                    }))
+                }),
+                Some(NFormat {
+                    prefix: None,
+                    suffix: Some(" S".to_string()),
+                    locale: None,
+                    value_format: Some(ValueFormat::Number(FFormat {
+                        ff_type: FFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 2,
+                        p_significant_digits: 3,
+                        p_insignificant_zeros: 1,
+                        group_separator_count: 3
+                    }))
+                })
+            ]
+        }
     );
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        custom_format::maybe_custom_date_format,
-        formats::{format_excell_date_time, format_with_fformat, FFormat},
+        datatype::DataTypeRef,
+        formats::{
+            detect_custom_number_format, format_excel_f64_ref, format_with_fformat, FFormat,
+        },
     };
 
     #[test]
     fn test_date_format_processing_china() {
-        let format = maybe_custom_date_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@").unwrap();
+        let format = detect_custom_number_format("[$-1004]dddd\\,\\ d\\ mmmm\\,\\ yyyy;@");
         assert_eq!(
-            format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-            Some("星期五, 20 一月, 2023".to_owned()),
-        )
+            format_excel_f64_ref(44946.0, Some(&format), false),
+            DataTypeRef::String("星期五, 20 一月, 2023".to_owned()),
+        );
     }
 
     #[test]
     fn test_date_format_processing_de() {
-        let format = maybe_custom_date_format("[$-407]mmmm\\ yy;@").unwrap();
+        let format = detect_custom_number_format("[$-407]mmmm\\ yy;@");
+
         assert_eq!(
-            format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-            Some("Januar 23".to_owned()),
-        )
+            format_excel_f64_ref(44946.0, Some(&format), false),
+            DataTypeRef::String("Januar 23".to_owned()),
+        );
     }
 
     #[test]
     fn test_date_format_processing_built_in() {
-        let format = maybe_custom_date_format("dd/mm/yyyy;@").unwrap();
+        let format = detect_custom_number_format("dd/mm/yyyy;@");
         assert_eq!(
-            format_excell_date_time(44946.0, format.format.as_ref(), format.locale),
-            Some("20/01/2023".to_owned()),
+            format_excel_f64_ref(44946.0, Some(&format), false),
+            DataTypeRef::String("20/01/2023".to_owned()),
         )
     }
 
     #[test]
     fn test_date_format_processing_1() {
-        let format = maybe_custom_date_format("[$-407]d/\\ mmm/;@").unwrap();
+        let format = detect_custom_number_format("[$-407]d/\\ mmm/;@");
         assert_eq!(
-            format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
-            Some("14. Mär.".to_owned()),
+            format_excel_f64_ref(44634.572222222225, Some(&format), false),
+            DataTypeRef::String("14. Mär.".to_owned()),
         )
     }
 
     #[test]
     fn test_date_format_processing_2() {
-        let format = maybe_custom_date_format("d/m/yy\\ h:mm;@").unwrap();
+        let format = detect_custom_number_format("d/m/yy\\ h:mm;@");
         assert_eq!(
-            format_excell_date_time(44634.572222222225, format.format.as_ref(), format.locale),
-            Some("14/3/22 13:44".to_owned()),
+            format_excel_f64_ref(44634.572222222225, Some(&format), false),
+            DataTypeRef::String("14/3/22 13:44".to_owned()),
         )
     }
 
     #[test]
     fn test_date_format_processing_3() {
-        let format = maybe_custom_date_format("[$-409]m/d/yy\\ h:mm\\ AM/PM;@").unwrap();
+        let format = detect_custom_number_format("[$-409]m/d/yy\\ h:mm\\ AM/PM;@");
         assert_eq!(
-            format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
-            Some("9/11/09 0:00 AM".to_owned()), // excell is showing 12:00 AM here (don't know why)
+            format_excel_f64_ref(40067.0, Some(&format), false),
+            DataTypeRef::String("9/11/09 0:00 AM".to_owned()), // excell is showing 12:00 AM here (don't know why)
         )
     }
 
     #[test]
     fn test_date_format_processing_4() {
-        let format = maybe_custom_date_format("m/d/yy\\ h:mm;@").unwrap();
+        let format = detect_custom_number_format("m/d/yy\\ h:mm;@");
         assert_eq!(
-            format_excell_date_time(40067.0, format.format.as_ref(), format.locale),
-            Some("9/11/09 0:00".to_owned()),
+            format_excel_f64_ref(40067.0, Some(&format), false),
+            DataTypeRef::String("9/11/09 0:00".to_owned()),
         )
     }
 
