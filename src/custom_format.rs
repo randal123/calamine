@@ -1,5 +1,7 @@
 use crate::{
-    formats::{CellFormat, DTFormat, FFormat, FFormatType, NFormat, ValueFormat},
+    formats::{
+        CellFormat, Condition, ConditionOp, DTFormat, FFormat, FFormatType, NFormat, ValueFormat,
+    },
     locales::{get_time_locale, LocaleData},
 };
 use anyhow::anyhow;
@@ -67,7 +69,7 @@ fn read_quoted_value(fmt: &[char]) -> anyhow::Result<(String, usize)> {
     let mut index = QUOTE.len();
     let mut s = String::new();
 
-    if fmt.len() >= 6 && fmt[0..=5].eq(&QUOTE) {
+    if fmt.len() >= QUOTE.len() && fmt[0..QUOTE.len()].eq(&QUOTE) {
         loop {
             if let Some(c) = fmt.get(index) {
                 match c {
@@ -135,6 +137,54 @@ fn read_locale(fmt: &[char]) -> anyhow::Result<ReadResult<usize>> {
         "Missing char '] in fmt: {}",
         fmt.iter().collect::<String>()
     ))
+}
+
+fn is_condition(fmt: &[char]) -> Option<ConditionOp> {
+    if fmt.len() >= 3 {
+        let fmt = &fmt[0..3];
+        if fmt.eq(&['&', 'g', 't']) {
+            return Some(ConditionOp::Gt);
+        } else if fmt.eq(&['&', 'l', 't']) {
+            return Some(ConditionOp::Lt);
+        } else if fmt.eq(&['&', 'g', 'e']) {
+            return Some(ConditionOp::Ge);
+        } else if fmt.eq(&['&', 'l', 'e']) {
+            return Some(ConditionOp::Le);
+        }
+    }
+
+    None
+}
+
+fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
+    let Some(end_index) = fmt.iter().position(|x| x.eq(&']')) else {
+        return Err(anyhow!(
+            "Missing ']' in fmt: {}",
+            fmt.iter().collect::<String>()
+        ));
+    };
+
+    let Some(condition_op) = is_condition(fmt) else {
+        return Err(anyhow!(
+            "Missing condition in fmt: {}",
+            fmt.iter().collect::<String>()
+        ));
+    };
+
+    let condition_num = fmt[3..end_index].iter().collect::<String>();
+
+    if let Ok(num) = condition_num.parse::<f64>() {
+        return Ok(ReadResult::new(
+            Condition::new(condition_op, num),
+            end_index + 1,
+            false,
+        ));
+    } else {
+        return Err(anyhow!(
+            "Can't read condition value in fmt: {}",
+            fmt.iter().collect::<String>()
+        ));
+    }
 }
 
 fn get_fix(
@@ -231,10 +281,16 @@ fn get_fix(
                             in_brackets = true;
                             // skip $
                             index += 1;
+                        } else if is_condition(fmt).is_some() {
+			    // FIXME
+			    if let Ok(ReadResult { result, offset, end }) = read_condition(fmt) {
+				
+			    } else {
+			    }
                         } else {
                             // this is color or similar thing, skip it
                             if let Some(close_bracket_index) =
-                                &fmt[index + 1..].iter().position(|tc| tc.eq(&']'))
+                                &fmt[index + 1..].iter().position(|tc| tc.eq(&']')) // FIXME, ']' can be quoted ??
                             {
                                 index += close_bracket_index + 2;
                                 continue;
@@ -298,7 +354,7 @@ fn get_fix(
                         locale = Some(result);
                     } else {
                         if let Some(close_bracket_index) =
-                            &fmt[index..].iter().position(|tc| tc.eq(&']'))
+                            &fmt[index..].iter().position(|tc| tc.eq(&']')) // FIXME, ] can be quoted ?
                         {
                             index += close_bracket_index;
                             continue;
@@ -739,8 +795,44 @@ pub fn parse_excell_format(format: &str, default: CellFormat) -> CellFormat {
 mod tests {
     use crate::{
         custom_format::{maybe_custom_format, read_quoted_value},
-        formats::{FFormat, FFormatType, NFormat, ValueFormat},
+        formats::{
+            detect_custom_number_format, format_excel_f64_ref, FFormat, FFormatType, NFormat,
+            ValueFormat,
+        },
+        DataType,
     };
+
+    use super::parse_excell_format;
+
+    fn parse_f64_cell(value: f64, fmt: &str) -> DataType {
+        let format = detect_custom_number_format(fmt);
+        let res: DataType = format_excel_f64_ref(value, Some(&format), false).into();
+        res
+    }
+
+    fn parse_str_cell(value: &str, fmt: &str) -> String {
+        let format = detect_custom_number_format(fmt);
+        dbg!(&format);
+        match format {
+            crate::formats::CellFormat::NumberFormat { nformats } => {
+                if let Some(Some(nformat)) = nformats.get(3) {
+                    if Some(ValueFormat::Text) == nformat.value_format {
+                        return format!(
+                            "{}{}{}",
+                            nformat.prefix.as_deref().unwrap_or(""),
+                            value,
+                            nformat.suffix.as_deref().unwrap_or(""),
+                        );
+                    } else {
+                        return "".to_string();
+                    }
+                } else {
+                    return "".to_string();
+                }
+            }
+            _ => panic!("Should not happen"),
+        }
+    }
 
     #[test]
     fn test_read_quote_1() {
@@ -821,4 +913,71 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_custom_format_4() {
+        assert_eq!(
+            maybe_custom_format(
+                r#"&quot;foo&quot;;&quot;bar&quot;;&quot;baz&quot;;&quot;bla&quot;"#
+            )
+            .unwrap(),
+            vec![
+                Some(NFormat {
+                    prefix: Some("foo".to_owned()),
+                    suffix: None,
+                    locale: None,
+                    value_format: None
+                }),
+                Some(NFormat {
+                    prefix: Some("bar".to_owned()),
+                    suffix: None,
+                    locale: None,
+                    value_format: None
+                }),
+                Some(NFormat {
+                    prefix: Some("baz".to_owned()),
+                    suffix: None,
+                    locale: None,
+                    value_format: None
+                }),
+                Some(NFormat {
+                    prefix: Some("bla".to_owned()),
+                    suffix: None,
+                    locale: None,
+                    value_format: None
+                })
+            ]
+        );
+    }
+
+    // #[test]
+    // fn test_custom_format_5() {
+    //     assert_eq!(
+    //         parse_f64_cell(
+    //             1.0,
+    //             r#"&quot;foo&quot;;&quot;bar&quot;;&quot;baz&quot;;&quot;bla&quot;"#
+    //         ),
+    //         DataType::String("foo".to_string())
+    //     );
+    //     assert_eq!(
+    //         parse_f64_cell(
+    //             -1.0,
+    //             r#"&quot;foo&quot;;&quot;bar&quot;;&quot;baz&quot;;&quot;bla&quot;"#
+    //         ),
+    //         DataType::String("bar".to_string())
+    //     );
+    //     assert_eq!(
+    //         parse_str_cell(
+    //             "idi begaj",
+    //             r#"&quot;foo&quot;;&quot;bar&quot;;&quot;baz&quot;;&quot;bla&quot;"#
+    //         ),
+    //         "bla".to_string(),
+    //     );
+    // }
+    // #[test]
+    // fn test_custom_format_6() {
+    //     let x = maybe_custom_format("[&gt;5.5]&quot;aa&quot;;[&lt;5.5]&quot;bb&quot;").unwrap();
+    //     dbg!(x);
+    //     assert_eq!(1, 2);
+    // }
 }

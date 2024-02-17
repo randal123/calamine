@@ -9,8 +9,7 @@ use std::fmt::Write;
 
 use crate::{
     custom_format::{
-	panic_safe_maybe_custom_date_format,
-        panic_safe_maybe_custom_format, parse_excell_format,
+        panic_safe_maybe_custom_date_format, panic_safe_maybe_custom_format, parse_excell_format,
     },
     datatype::DataTypeRef,
     locales::{get_locale_symbols, get_time_locale},
@@ -28,42 +27,48 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
 
         hash.insert(1, parse_excell_format("0", CellFormat::Other));
 
-        hash.insert(
-            2,
-            CellFormat::NumberFormat {
-                nformats: vec![Some(NFormat {
-                    prefix: Some("".to_owned()),
-                    suffix: None,
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 2,
-                        p_significant_digits: 0,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 0,
-                    })),
-                })],
-            },
-        );
-        hash.insert(
-            4,
-            CellFormat::NumberFormat {
-                nformats: vec![Some(NFormat {
-                    prefix: Some("".to_owned()),
-                    suffix: None,
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 2,
-                        p_significant_digits: 0,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 3,
-                    })),
-                })],
-            },
-        );
+        hash.insert(2, parse_excell_format("0.00", CellFormat::Other));
+
+        hash.insert(3, parse_excell_format("#,##0", CellFormat::Other));
+
+        hash.insert(4, parse_excell_format("#,##0.00", CellFormat::Other));
+
+        // hash.insert(
+        //     2,
+        //     CellFormat::NumberFormat {
+        //         nformats: vec![Some(NFormat {
+        //             prefix: Some("".to_owned()),
+        //             suffix: None,
+        //             locale: None,
+        //             value_format: Some(ValueFormat::Number(FFormat {
+        //                 ff_type: FFormatType::Number,
+        //                 significant_digits: 0,
+        //                 insignificant_zeros: 2,
+        //                 p_significant_digits: 0,
+        //                 p_insignificant_zeros: 1,
+        //                 group_separator_count: 0,
+        //             })),
+        //         })],
+        //     },
+        // );
+        // hash.insert(
+        //     4,
+        //     CellFormat::NumberFormat {
+        //         nformats: vec![Some(NFormat {
+        //             prefix: Some("".to_owned()),
+        //             suffix: None,
+        //             locale: None,
+        //             value_format: Some(ValueFormat::Number(FFormat {
+        //                 ff_type: FFormatType::Number,
+        //                 significant_digits: 0,
+        //                 insignificant_zeros: 2,
+        //                 p_significant_digits: 0,
+        //                 p_insignificant_zeros: 1,
+        //                 group_separator_count: 3,
+        //             })),
+        //         })],
+        //     },
+        // );
 
         hash.insert(
             5,
@@ -233,6 +238,24 @@ impl NFormat {
     }
 }
 
+pub enum ConditionOp {
+    Lt,
+    Gt,
+    Le,
+    Ge,
+}
+
+pub struct Condition {
+    pub op: ConditionOp,
+    pub value: f64,
+}
+
+impl Condition {
+    pub fn new(op: ConditionOp, value: f64) -> Self {
+	Self { op, value }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct DTFormat {
     pub locale: Option<usize>,
@@ -241,8 +264,10 @@ pub struct DTFormat {
     pub suffix: Option<String>,
 }
 
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum CellFormat {
+    // General,
     Other,
     DateTime,
     TimeDelta,
@@ -260,6 +285,11 @@ pub fn detect_custom_number_format(format: &str) -> CellFormat {
     let mut prev = ' ';
     let mut hms = false;
     let mut ap = false;
+
+    // if format.eq("General") || format.eq("@") {
+    //     return CellFormat::General;
+    // }
+
     for s in format.chars() {
         match (s, escaped, is_quote, ap, brackets) {
             (_, true, ..) => escaped = false, // if escaped, ignore
@@ -689,6 +719,20 @@ pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) 
     format_excel_f64_ref(value, format, is_1904).into()
 }
 
+pub fn format_excell_str_ref(value: &str, format: Option<&CellFormat>) -> DataTypeRef<'static> {
+    if let Some(format) = format {
+        match format {
+            CellFormat::Other => todo!(),
+            CellFormat::DateTime => todo!(),
+            CellFormat::TimeDelta => todo!(),
+            CellFormat::NumberFormat { nformats } => todo!(),
+            CellFormat::CustomDateTimeFormat(_) => todo!(),
+        }
+    }
+
+    todo!()
+}
+
 /// Ported from openpyxl, MIT License
 /// https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a5e197c530aaa49814fd1d993dd776edcec35105/openpyxl/styles/tests/test_number_style.py
 #[test]
@@ -917,7 +961,10 @@ fn test_is_date_format() {
 
 #[cfg(test)]
 mod test {
-    use crate::{formats::{format_with_fformat, FFormat, format_excell_date_time}, custom_format::maybe_custom_date_format};
+    use crate::{
+        custom_format::maybe_custom_date_format,
+        formats::{format_excell_date_time, format_with_fformat, FFormat},
+    };
 
     #[test]
     fn test_date_format_processing_china() {
