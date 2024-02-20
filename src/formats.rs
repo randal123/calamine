@@ -243,16 +243,19 @@ pub enum ConditionOp {
     Gt,
     Le,
     Ge,
+    Eq,
+    Ne,
 }
 
 pub struct Condition {
     pub op: ConditionOp,
-    pub value: f64,
+    pub float: Option<f64>,
+    pub int: Option<i64>,
 }
 
 impl Condition {
-    pub fn new(op: ConditionOp, value: f64) -> Self {
-        Self { op, value }
+    pub fn new(op: ConditionOp, float: Option<f64>, int: Option<i64>) -> Self {
+        Self { op, float, int }
     }
 }
 

@@ -52,9 +52,85 @@ fn read_locale(fmt: &[char]) -> anyhow::Result<ReadResult<usize>> {
     ))
 }
 
-fn is_condition(fmt: &[char]) -> Option<ConditionOp> {
-    // FIXME
-    todo!()
+fn read_condition_op(fmt: &[char]) -> anyhow::Result<ReadResult<ConditionOp>> {
+    if let Some(s) = fmt.get(0..=1) {
+        match s[0] {
+            '>' => match s[1] {
+                '=' => {
+                    return Ok(ReadResult {
+                        result: ConditionOp::Ge,
+                        offset: 2,
+                        end: false,
+                    })
+                }
+                _ => {
+                    return Ok(ReadResult {
+                        result: ConditionOp::Gt,
+                        offset: 1,
+                        end: false,
+                    })
+                }
+            },
+            '<' => match s[1] {
+                '=' => {
+                    return Ok(ReadResult {
+                        result: ConditionOp::Le,
+                        offset: 2,
+                        end: false,
+                    })
+                }
+                '>' => {
+                    return Ok(ReadResult {
+                        result: ConditionOp::Ne,
+                        offset: 2,
+                        end: false,
+                    })
+                }
+                _ => {
+                    return Ok(ReadResult {
+                        result: ConditionOp::Lt,
+                        offset: 1,
+                        end: false,
+                    })
+                }
+            },
+            '=' => {
+                return Ok(ReadResult {
+                    result: ConditionOp::Eq,
+                    offset: 1,
+                    end: false,
+                })
+            }
+            '!' => match s[1] {
+                '=' => {
+                    return Ok(ReadResult {
+                        result: ConditionOp::Ne,
+                        offset: 2,
+                        end: false,
+                    })
+                }
+                c => {
+                    return Err(anyhow!(
+                        "Wrong char {} in fmt: {}",
+                        c,
+                        fmt.iter().collect::<String>()
+                    ))
+                }
+            },
+            c => {
+                return Err(anyhow!(
+                    "Wrong char {} in fmt: {}",
+                    c,
+                    fmt.iter().collect::<String>()
+                ))
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Cant find condtion op in fmt: {}",
+        fmt.iter().collect::<String>()
+    ))
 }
 
 fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
@@ -65,27 +141,35 @@ fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
         ));
     };
 
-    let Some(condition_op) = is_condition(fmt) else {
-        return Err(anyhow!(
-            "Missing condition in fmt: {}",
-            fmt.iter().collect::<String>()
-        ));
-    };
+    let ReadResult {
+        result: condition_op,
+        offset,
+        end,
+    } = read_condition_op(fmt)?;
 
-    let condition_num = fmt[3..end_index].iter().collect::<String>();
+    let condition_num = fmt[offset + 1..end_index].iter().collect::<String>();
 
-    if let Ok(num) = condition_num.parse::<f64>() {
+    if let Ok(integer) = condition_num.parse::<i64>() {
         return Ok(ReadResult::new(
-            Condition::new(condition_op, num),
-            end_index + 1,
+            Condition::new(condition_op, None, Some(integer)),
+            end_index,
             false,
         ));
-    } else {
-        return Err(anyhow!(
-            "Can't read condition value in fmt: {}",
-            fmt.iter().collect::<String>()
+    }
+
+    if let Ok(float) = condition_num.parse::<f64>() {
+        return Ok(ReadResult::new(
+            Condition::new(condition_op, Some(float), None),
+            end_index,
+            false,
         ));
     }
+
+    return Err(anyhow!(
+        "Cant' parse numeric value from {} in fmt: {}",
+        &condition_num,
+        fmt.iter().collect::<String>()
+    ));
 }
 
 fn get_fix(
@@ -106,12 +190,12 @@ fn get_fix(
     let mut index = 0;
     let mut locale = None;
 
-    let mut condition: Option<Condition> = None;
+    let mut _condition: Option<Condition> = None;
     loop {
         if let Some(c) = fmt.get(index) {
             match (c, escaped, in_brackets, in_quotes) {
-		// FIXME, " when in_brackets == true ,
-		// looks like we can't have " inside of []
+                // FIXME, " when in_brackets == true ,
+                // looks like we can't have " inside of []
                 ('"', _, _, true) => in_quotes = false,
                 (_, _, _, true) => p.push(*c),
                 // escaped char
@@ -132,7 +216,7 @@ fn get_fix(
                             in_brackets = true;
                             // skip $
                             index += 1;
-                        } else if is_condition(fmt).is_some() {
+                        } else {
                             // FIXME
                             if let Ok(ReadResult {
                                 result,
@@ -140,26 +224,23 @@ fn get_fix(
                                 end,
                             }) = read_condition(fmt)
                             {
-                                condition = Some(result);
+                                _condition = Some(result);
                                 index += offset;
                             } else {
-                                // FIXME
-                                todo!()
-                            }
-                        } else {
-                            // this is color or similar thing, skip it
-                            if let Some(close_bracket_index) =
-                                &fmt[index + 1..].iter().position(|tc| tc.eq(&']'))
-                            // FIXME, ']' can be quoted ??
-                            {
-                                index += close_bracket_index + 2;
-                                continue;
-                            } else {
-                                // can't find closing bracket, signal error
-                                return Err(anyhow!(
-                                    "Missing char ']' in fmt: {}",
-                                    fmt[index..].iter().collect::<String>()
-                                ));
+                                // this is color or similar thing, skip it
+                                if let Some(close_bracket_index) =
+                                    &fmt[index + 1..].iter().position(|tc| tc.eq(&']'))
+                                // FIXME, ']' can be quoted ??
+                                {
+                                    index += close_bracket_index + 2;
+                                    continue;
+                                } else {
+                                    // can't find closing bracket, signal error
+                                    return Err(anyhow!(
+                                        "Missing char ']' in fmt: {}",
+                                        fmt[index..].iter().collect::<String>()
+                                    ));
+                                }
                             }
                         }
                     } else {
@@ -817,6 +898,14 @@ mod tests {
             ]
         );
     }
+
+    // #[test]
+    // fn test_custom_format_6() {
+    //     let format = maybe_custom_format("0_ ;[Red]\\-0\\ ");
+    //     let c = format.unwrap();
+    //     print!("{:?}", c);
+    //     assert_eq!(1, 2);
+    // }
 
     // #[test]
     // fn test_custom_format_5() {
