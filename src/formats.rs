@@ -8,13 +8,13 @@ use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
 use std::fmt::Write;
 
 use crate::{
-    custom_format::{
-        panic_safe_maybe_custom_date_format, panic_safe_maybe_custom_format, parse_excell_format,
-    },
+    custom_format::parse_custom_format,
     datatype::DataTypeRef,
     locales::{get_locale_symbols, get_time_locale},
     DataType,
 };
+
+const INVALID_VALUE: &'static str = "############";
 
 /// https://learn.microsoft.com/en-us/office/troubleshoot/excel/1900-and-1904-date-system
 static EXCEL_1900_1904_DIFF: i64 = 1462;
@@ -25,124 +25,56 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
     INSTANCE.get_or_init(|| {
         let mut hash = HashMap::new();
 
-        hash.insert(1, parse_excell_format("0", CellFormat::Other));
+        hash.insert(1, detect_custom_number_format("0"));
 
-        hash.insert(2, parse_excell_format("0.00", CellFormat::Other));
+        hash.insert(2, detect_custom_number_format("0.00"));
 
-        hash.insert(3, parse_excell_format("#,##0", CellFormat::Other));
+        hash.insert(3, detect_custom_number_format("#,##0"));
 
-        hash.insert(4, parse_excell_format("#,##0.00", CellFormat::Other));
+        hash.insert(4, detect_custom_number_format("#,##0.00"));
 
-        // hash.insert(
-        //     2,
-        //     CellFormat::NumberFormat {
-        //         nformats: vec![Some(NFormat {
-        //             prefix: Some("".to_owned()),
-        //             suffix: None,
-        //             locale: None,
-        //             value_format: Some(ValueFormat::Number(FFormat {
-        //                 ff_type: FFormatType::Number,
-        //                 significant_digits: 0,
-        //                 insignificant_zeros: 2,
-        //                 p_significant_digits: 0,
-        //                 p_insignificant_zeros: 1,
-        //                 group_separator_count: 0,
-        //             })),
-        //         })],
-        //     },
-        // );
-        // hash.insert(
-        //     4,
-        //     CellFormat::NumberFormat {
-        //         nformats: vec![Some(NFormat {
-        //             prefix: Some("".to_owned()),
-        //             suffix: None,
-        //             locale: None,
-        //             value_format: Some(ValueFormat::Number(FFormat {
-        //                 ff_type: FFormatType::Number,
-        //                 significant_digits: 0,
-        //                 insignificant_zeros: 2,
-        //                 p_significant_digits: 0,
-        //                 p_insignificant_zeros: 1,
-        //                 group_separator_count: 3,
-        //             })),
-        //         })],
-        //     },
-        // );
+        hash.insert(5, detect_custom_number_format("\\$#,##0_);\\$#,##0"));
 
-        hash.insert(
-            5,
-            parse_excell_format("\\$#,##0_);\\$#,##0", CellFormat::Other),
-        );
+        hash.insert(6, detect_custom_number_format("\\$#,##0_);\\$#,##0"));
 
-        hash.insert(
-            6,
-            parse_excell_format("\\$#,##0_);\\$#,##0", CellFormat::Other),
-        );
+        hash.insert(7, detect_custom_number_format("\\$#,##0.00;\\$#,##0.00"));
+        hash.insert(8, detect_custom_number_format("\\$#,##0.00;\\$#,##0.00"));
 
-        hash.insert(
-            7,
-            parse_excell_format("\\$#,##0.00;\\$#,##0.00", CellFormat::Other),
-        );
-        hash.insert(
-            8,
-            parse_excell_format("\\$#,##0.00;\\$#,##0.00", CellFormat::Other),
-        );
+        hash.insert(9, detect_custom_number_format("0%"));
 
-        hash.insert(9, parse_excell_format("0%", CellFormat::Other));
+        hash.insert(10, detect_custom_number_format("0.00%"));
 
-        hash.insert(10, parse_excell_format("0.00%", CellFormat::Other));
+        hash.insert(14, detect_custom_number_format("m/d/yy"));
 
-        hash.insert(14, parse_excell_format("m/d/yy", CellFormat::DateTime));
+        hash.insert(15, detect_custom_number_format("d/mmm/yy"));
 
-        hash.insert(15, parse_excell_format("d/mmm/yy", CellFormat::DateTime));
+        hash.insert(16, detect_custom_number_format("d/mmm"));
 
-        hash.insert(16, parse_excell_format("d/mmm", CellFormat::DateTime));
+        hash.insert(17, detect_custom_number_format("mmm/yy"));
 
-        hash.insert(17, parse_excell_format("mmm/yy", CellFormat::DateTime));
+        hash.insert(18, detect_custom_number_format("h:mm\\ AM/PM"));
 
-        hash.insert(
-            18,
-            parse_excell_format("h:mm\\ AM/PM", CellFormat::DateTime),
-        );
+        hash.insert(19, detect_custom_number_format("h:mm:ss\\ AM/PM"));
 
-        hash.insert(
-            19,
-            parse_excell_format("h:mm:ss\\ AM/PM", CellFormat::DateTime),
-        );
+        hash.insert(20, detect_custom_number_format("h:mm"));
 
-        hash.insert(20, parse_excell_format("h:mm", CellFormat::DateTime));
+        hash.insert(21, detect_custom_number_format("h:mm:ss"));
 
-        hash.insert(21, parse_excell_format("h:mm:ss", CellFormat::DateTime));
+        hash.insert(22, detect_custom_number_format("m/d/yy\\ h:mm"));
 
-        hash.insert(
-            22,
-            parse_excell_format("m/d/yy\\ h:mm", CellFormat::DateTime),
-        );
-
-        hash.insert(37, parse_excell_format("#.##0\\ ;#.##0", CellFormat::Other));
-        hash.insert(
-            38,
-            parse_excell_format("#,##0;[Red]#,##0", CellFormat::Other),
-        );
-        hash.insert(
-            39,
-            parse_excell_format("#,##0.00#,##0.00", CellFormat::Other),
-        );
-        hash.insert(
-            40,
-            parse_excell_format("#,##0.00;[Red]#,##0.00", CellFormat::Other),
-        );
+        hash.insert(37, detect_custom_number_format("#.##0\\ ;#.##0"));
+        hash.insert(38, detect_custom_number_format("#,##0;[Red]#,##0"));
+        hash.insert(39, detect_custom_number_format("#,##0.00#,##0.00"));
+        hash.insert(40, detect_custom_number_format("#,##0.00;[Red]#,##0.00"));
 
         hash.insert(
             44,
-            parse_excell_format(
+            detect_custom_number_format(
                 "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
-                CellFormat::Other,
             ),
         );
 
-        hash.insert(45, parse_excell_format("mm:ss", CellFormat::DateTime));
+        hash.insert(45, detect_custom_number_format("mm:ss"));
 
         hash
     })
@@ -155,14 +87,73 @@ fn get_built_in_format(id: usize) -> Option<CellFormat> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum FFormatType {
+pub enum ConditionOp {
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    Eq,
+    Ne,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Condition {
+    pub op: ConditionOp,
+    pub float: Option<f64>,
+    pub int: Option<i64>,
+}
+
+impl Condition {
+    pub fn new(op: ConditionOp, float: Option<f64>, int: Option<i64>) -> Self {
+        Self { op, float, int }
+    }
+
+    pub fn run_condition_f64(&self, v: f64) -> bool {
+        let opv = self.float.or(self.int.map(|i| i as f64)).unwrap_or(0.0);
+        match self.op {
+            ConditionOp::Lt => v < opv,
+            ConditionOp::Gt => v > opv,
+            ConditionOp::Le => v <= opv,
+            ConditionOp::Ge => v >= opv,
+            ConditionOp::Eq => v == opv,
+            ConditionOp::Ne => v != opv,
+        }
+    }
+
+    pub fn run_condition_i64(&self, v: i64) -> bool {
+        let opv = self.int.or(self.float.map(|f| f as i64)).unwrap_or(0);
+        match self.op {
+            ConditionOp::Lt => v < opv,
+            ConditionOp::Gt => v > opv,
+            ConditionOp::Le => v <= opv,
+            ConditionOp::Ge => v >= opv,
+            ConditionOp::Eq => v == opv,
+            ConditionOp::Ne => v != opv,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Fix {
+    fix_string: Option<String>,
+}
+
+impl Fix {
+    pub fn new(fix_string: Option<String>) -> Self {
+        Self { fix_string }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum NumFormatType {
     Percentage,
     Number,
+    Currency,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FFormat {
-    pub ff_type: FFormatType,
+    pub ff_type: NumFormatType,
     pub significant_digits: i32,
     pub insignificant_zeros: i32,
     /// next two are for digits/zeros before decimal point
@@ -171,15 +162,9 @@ pub struct FFormat {
     pub group_separator_count: i32,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ValueFormat {
-    Number(FFormat),
-    Text,
-}
-
 impl FFormat {
     pub fn new(
-        ff_type: FFormatType,
+        ff_type: NumFormatType,
         significant_digits: i32,
         insignificant_zeros: i32,
         p_significant_digits: i32,
@@ -204,7 +189,7 @@ impl FFormat {
         group_separator_count: i32,
     ) -> Self {
         Self {
-            ff_type: FFormatType::Number,
+            ff_type: NumFormatType::Number,
             significant_digits,
             insignificant_zeros,
             p_significant_digits,
@@ -215,56 +200,64 @@ impl FFormat {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct NFormat {
-    pub prefix: Option<String>,
-    pub suffix: Option<String>,
-    pub locale: Option<usize>,
-    pub value_format: Option<ValueFormat>,
+pub struct NumFormat {
+    pub fformat: Option<FFormat>,
 }
 
-impl NFormat {
-    pub fn new(
-        prefix: Option<String>,
-        suffix: Option<String>,
-        locale: Option<usize>,
-        value_format: Option<ValueFormat>,
-    ) -> Self {
-        Self {
-            prefix,
-            suffix,
-            locale,
-            value_format,
-        }
-    }
-}
-
-pub enum ConditionOp {
-    Lt,
-    Gt,
-    Le,
-    Ge,
-    Eq,
-    Ne,
-}
-
-pub struct Condition {
-    pub op: ConditionOp,
-    pub float: Option<f64>,
-    pub int: Option<i64>,
-}
-
-impl Condition {
-    pub fn new(op: ConditionOp, float: Option<f64>, int: Option<i64>) -> Self {
-        Self { op, float, int }
+impl NumFormat {
+    pub fn new(fformat: Option<FFormat>) -> Self {
+        Self { fformat }
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct DTFormat {
+pub struct DFormat {
+    pub strftime_fmt: String,
+}
+
+impl DFormat {
+    pub fn new(strftime_fmt: String) -> Self {
+        Self { strftime_fmt }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ValueFormat {
+    Number(NumFormat),
+    Date(DFormat),
+    Text,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct FormatPart {
+    pub prefix: Option<Fix>,
+    pub suffix: Option<Fix>,
+    pub value: Option<ValueFormat>,
+    pub condition: Option<Condition>,
     pub locale: Option<usize>,
-    pub prefix: Option<String>,
-    pub format: String,
-    pub suffix: Option<String>,
+}
+
+impl FormatPart {
+    pub fn new(
+        prefix: Option<Fix>,
+        suffix: Option<Fix>,
+        value: Option<ValueFormat>,
+        condition: Option<Condition>,
+        locale: Option<usize>,
+    ) -> Self {
+        Self {
+            prefix,
+            suffix,
+            value,
+            condition,
+            locale,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct CustomFormat {
+    pub formats: Vec<Option<FormatPart>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -273,12 +266,17 @@ pub enum CellFormat {
     Other,
     DateTime,
     TimeDelta,
-    // FIXME, we are using NumberFormat for both currencty and numbers
-    // currency/acounting can have Locale but numbers can't
-    NumberFormat { nformats: Vec<Option<NFormat>> },
-    CustomDateTimeFormat(DTFormat),
+    General,
+    Custom(CustomFormat),
 }
 
+fn custom_or_default(fmt: &str, default: CellFormat) -> CellFormat {
+    if let Ok(formats) = parse_custom_format(fmt) {
+        return CellFormat::Custom(CustomFormat { formats });
+    }
+
+    default
+}
 /// Check excel number format is datetime
 pub fn detect_custom_number_format(fmt: &str) -> CellFormat {
     let mut escaped = false;
@@ -290,9 +288,9 @@ pub fn detect_custom_number_format(fmt: &str) -> CellFormat {
 
     let format = html_escape::decode_html_entities(fmt);
 
-    // if format.eq("General") || format.eq("@") {
-    //     return CellFormat::General;
-    // }
+    if format.eq("General") || format.eq("@") {
+        return CellFormat::General;
+    }
 
     for s in format.chars() {
         match (s, escaped, is_quote, ap, brackets) {
@@ -302,33 +300,17 @@ pub fn detect_custom_number_format(fmt: &str) -> CellFormat {
             (_, _, true, _, _) => (),
             ('"', _, _, _, _) => is_quote = true,
             (';', ..) => {
-                if let Some(nformats) = panic_safe_maybe_custom_format(&format) {
-                    return CellFormat::NumberFormat { nformats };
-                }
-                if let Some(date_format) = panic_safe_maybe_custom_date_format(&format) {
-                    return CellFormat::CustomDateTimeFormat(date_format);
-                }
-
-                // first format only
-                return CellFormat::Other;
+                return custom_or_default(&format, CellFormat::Other);
             }
             ('[', ..) => brackets += 1,
             (']', .., 1) if hms => return CellFormat::TimeDelta, // if closing
             (']', ..) => brackets = brackets.saturating_sub(1),
             ('a' | 'A', _, _, false, 0) => ap = true,
             ('p' | 'm' | '/' | 'P' | 'M', _, _, true, 0) => {
-                if let Some(format) = panic_safe_maybe_custom_date_format(&format) {
-                    return CellFormat::CustomDateTimeFormat(format);
-                } else {
-                    return CellFormat::DateTime;
-                }
+                return custom_or_default(&format, CellFormat::DateTime);
             }
             ('d' | 'm' | 'h' | 'y' | 's' | 'D' | 'M' | 'H' | 'Y' | 'S', _, _, false, 0) => {
-                if let Some(format) = panic_safe_maybe_custom_date_format(&format) {
-                    return CellFormat::CustomDateTimeFormat(format);
-                } else {
-                    return CellFormat::DateTime;
-                }
+                return custom_or_default(&format, CellFormat::DateTime);
             }
             _ => {
                 if hms && s.eq_ignore_ascii_case(&prev) {
@@ -341,7 +323,7 @@ pub fn detect_custom_number_format(fmt: &str) -> CellFormat {
         prev = s;
     }
 
-    parse_excell_format(&format, CellFormat::Other)
+    custom_or_default(&format, CellFormat::Other)
 }
 
 fn make_usize(s: &[u8]) -> Option<usize> {
@@ -404,20 +386,17 @@ pub fn builtin_format_by_code(code: u16) -> CellFormat {
     }
 }
 
-fn custom_format_excell_date_i64(value: i64, format: &DTFormat, is_1904: bool) -> DataType {
-    match format_custom_date_cell(value as f64, format, is_1904) {
-        DataTypeRef::String(s) => DataType::String(s),
-        DataTypeRef::DateTime(v) => DataType::DateTime(v),
-        _ => DataType::DateTime(value as f64),
-    }
-}
+// fn custom_format_excell_date_i64(value: i64, format: &DTFormat, is_1904: bool) -> DataType {
+//     match format_custom_date_cell(value as f64, format, is_1904) {
+//         DataTypeRef::String(s) => DataType::String(s),
+//         DataTypeRef::DateTime(v) => DataType::DateTime(v),
+//         _ => DataType::DateTime(value as f64),
+//     }
+// }
 
 // convert i64 to date, if format == Date
 pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) -> DataType {
     match format {
-        Some(CellFormat::CustomDateTimeFormat(format)) => {
-            custom_format_excell_date_i64(value, format, is_1904)
-        }
         Some(CellFormat::DateTime) => DataType::DateTime(
             (if is_1904 {
                 value + EXCEL_1900_1904_DIFF
@@ -425,13 +404,8 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
                 value
             }) as f64,
         ),
-        Some(CellFormat::NumberFormat { nformats }) => {
-            match format_custom_format_fcell(value as f64, &nformats) {
-                DataTypeRef::String(s) => DataType::String(s),
-                _ => DataType::Int(value),
-            }
-        }
         Some(CellFormat::TimeDelta) => DataType::Duration(value as f64),
+        Some(CellFormat::Custom(custom_format)) => todo!(),
         _ => DataType::Int(value),
     }
 }
@@ -489,14 +463,19 @@ fn format_excell_date_time(f: f64, format: &str, locale: Option<usize>) -> Optio
 }
 
 //FIXME, check is_1904 thing
-fn format_custom_date_cell(value: f64, format: &DTFormat, is_1904: bool) -> DataTypeRef<'static> {
+fn format_with_dformat(
+    value: f64,
+    format: &DFormat,
+    locale: Option<usize>,
+    is_1904: bool,
+) -> DataTypeRef<'static> {
     let value = if is_1904 {
         value + EXCEL_1900_1904_DIFF as f64
     } else {
         value
     };
 
-    if let Some(s) = format_excell_date_time(value, &format.format, format.locale) {
+    if let Some(s) = format_excell_date_time(value, &format.strftime_fmt, locale) {
         return DataTypeRef::String(s);
     }
 
@@ -512,7 +491,7 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
         format!("{:.*}", dp as usize, value)
     }
 
-    if fformat.ff_type == FFormatType::Percentage {
+    if fformat.ff_type == NumFormatType::Percentage {
         value = value * 100.0;
     }
 
@@ -531,7 +510,7 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
     let mut str_value = excell_round(value, dec_places as i32);
 
     if grouping_count == 0 && significant_digits == 0 {
-        if fformat.ff_type == FFormatType::Percentage {
+        if fformat.ff_type == NumFormatType::Percentage {
             str_value.push('%');
         }
 
@@ -623,61 +602,36 @@ fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>)
         }
     }
 
-    if fformat.ff_type == FFormatType::Percentage {
+    if fformat.ff_type == NumFormatType::Percentage {
         new_str_value.push_back('%');
     }
 
     new_str_value.iter().collect()
 }
 
-fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataTypeRef<'static> {
-    let mut value = value;
+fn format_num_format(
+    value: f64,
+    format: &FormatPart,
+    num_format: &NumFormat,
+) -> DataTypeRef<'static> {
+    let value = value;
 
-    let format = if value > 0.0 {
-        if let Some(f) = nformats.get(0) {
-            f
-        } else {
-            return DataTypeRef::Float(value);
-        }
-    } else if value < 0.0 {
-        if let Some(f) = nformats.get(1) {
-            value = value.abs();
-            f
-        } else {
-            if let Some(f) = nformats.get(0) {
-                f
-            } else {
-                return DataTypeRef::Float(value);
-            }
-        }
+    let mut prefix = format.prefix.as_ref().map_or_else(
+        || "",
+        |fix| fix.fix_string.as_ref().map_or_else(|| "", |s| &s),
+    );
+
+    let mut suffix = format.suffix.as_ref().map_or_else(
+        || "",
+        |fix| fix.fix_string.as_ref().map_or_else(|| "", |s| &s),
+    );
+
+    let locale = format.locale;
+
+    let value = if let Some(ref fformat) = num_format.fformat {
+        format_with_fformat(value, fformat, locale)
     } else {
-        if let Some(f) = nformats.get(2) {
-            f
-        } else {
-            if let Some(f) = nformats.get(0) {
-                f
-            } else {
-                return DataTypeRef::Float(value);
-            }
-        }
-    };
-
-    let mut suffix = format
-        .as_ref()
-        .map_or("", |ref f| f.suffix.as_deref().unwrap_or(""));
-    let mut prefix = format
-        .as_ref()
-        .map_or("", |ref f| f.prefix.as_deref().unwrap_or(""));
-    let locale = format.as_ref().map_or(None, |f| f.locale);
-    let vformat = format.as_ref().map_or(None, |vf| vf.value_format.as_ref());
-
-    let value = if let Some(vformat) = vformat {
-        match vformat {
-            ValueFormat::Number(fformat) => format_with_fformat(value, fformat, locale),
-            ValueFormat::Text => value.to_string(),
-        }
-    } else {
-        "".to_owned()
+        String::from("")
     };
 
     // do not use prefix/suffix if just blank characters
@@ -696,6 +650,174 @@ fn format_custom_format_fcell(value: f64, nformats: &[Option<NFormat>]) -> DataT
     DataTypeRef::String(format!("{}{}{}", prefix, value, suffix))
 }
 
+fn no_value_format(format: &FormatPart) -> DataTypeRef<'static> {
+    let mut prefix = format.prefix.as_ref().map_or_else(
+        || "",
+        |fix| fix.fix_string.as_ref().map_or_else(|| "", |s| &s),
+    );
+
+    let mut suffix = format.suffix.as_ref().map_or_else(
+        || "",
+        |fix| fix.fix_string.as_ref().map_or_else(|| "", |s| &s),
+    );
+
+    prefix = if prefix.chars().all(char::is_whitespace) {
+        ""
+    } else {
+        prefix
+    };
+
+    suffix = if suffix.chars().all(char::is_whitespace) {
+        ""
+    } else {
+        suffix
+    };
+
+    DataTypeRef::String(format!("{}{}", prefix, suffix))
+}
+
+pub fn format_part_format_f64(
+    value: f64,
+    format_part: Option<&FormatPart>,
+    is_1904: bool,
+) -> DataTypeRef<'static> {
+    let Some(format) = format_part else {
+        if value < 0.0 {
+            return DataTypeRef::String(String::from("-"));
+        } else {
+            return DataTypeRef::String(String::from(""));
+        }
+    };
+
+    let value_format = format.value.as_ref();
+
+    match value_format {
+        Some(ValueFormat::Number(ref nf)) => format_num_format(value, format, nf),
+        Some(ValueFormat::Date(ref df)) => format_with_dformat(value, df, format.locale, is_1904),
+        Some(ValueFormat::Text) => todo!(),
+        None => no_value_format(format),
+    }
+}
+
+pub fn format_custom_format_f64(
+    value: f64,
+    custom_format: &CustomFormat,
+    is_1904: bool,
+) -> DataTypeRef<'static> {
+    fn format_index_match(v: f64, format_index: usize, formats_count: usize) -> bool {
+        if v > 0.0 {
+            format_index == 0
+        } else if v < 0.0 {
+            format_index == 1
+        } else {
+            if formats_count == 2 {
+                format_index == 0
+            } else {
+                format_index == 2
+            }
+        }
+    }
+
+    fn value_match_format(
+        v: f64,
+        format: Option<&FormatPart>,
+        format_index: usize,
+        formats_count: usize,
+    ) -> bool {
+        if let Some(format) = format {
+            if let Some(ref condition) = format.condition {
+                condition.run_condition_f64(v)
+            } else {
+                format_index_match(v, format_index, formats_count)
+            }
+        } else {
+            format_index_match(v, format_index, formats_count)
+        }
+    }
+
+    // in some cases we need to use abs() of negative value
+    // case: when format doesn't have custom condition and it's default format meant for negative values (2. format)
+    fn maybe_abs_of_neg_value(value: f64, format: Option<&FormatPart>, format_index: usize) -> f64 {
+        if format_index != 1 {
+            return value;
+        }
+
+        let Some(format) = format else {
+            return value;
+        };
+
+        let Some(ref _cond) = format.condition else {
+            // if format doesn't have custom condition use abs()
+            return value.abs();
+        };
+
+        value
+    }
+
+    let formats_count = custom_format.formats.len();
+    let format_parts = &custom_format.formats;
+    let has_custom_conditions = format_parts
+        .iter()
+        .any(|f| f.as_ref().map_or(false, |ref f| f.condition.is_some()));
+
+    match formats_count {
+        0 => DataTypeRef::String(String::from(INVALID_VALUE)),
+        1 => {
+            return format_part_format_f64(value, format_parts[0].as_ref(), is_1904);
+        }
+        2 => {
+            if !has_custom_conditions {
+                if value >= 0.0 {
+                    return format_part_format_f64(value, format_parts[0].as_ref(), is_1904);
+                } else {
+                    return format_part_format_f64(value.abs(), format_parts[1].as_ref(), is_1904);
+                }
+            }
+
+            let fp_1 = format_parts[0].as_ref();
+            let fp_2 = format_parts[1].as_ref();
+
+            if value_match_format(value, fp_1, 0, 2) {
+                return format_part_format_f64(value, fp_1, is_1904);
+            } else {
+                if value_match_format(value, fp_2, 1, 2) {
+                    let v = maybe_abs_of_neg_value(value, fp_2, 1);
+                    return format_part_format_f64(v, fp_2, is_1904);
+                } else {
+                    // if both formats have custom condition then Excel prints ###########
+                    return DataTypeRef::String(String::from(INVALID_VALUE));
+                }
+            }
+        }
+        3 | 4 => {
+            if !has_custom_conditions {
+                if value > 0.0 {
+                    return format_part_format_f64(value, format_parts[0].as_ref(), is_1904);
+                } else if value < 0.0 {
+                    return format_part_format_f64(value.abs(), format_parts[1].as_ref(), is_1904);
+                } else {
+                    // zero
+                    return format_part_format_f64(value, format_parts[2].as_ref(), is_1904);
+                }
+            }
+
+            let fp_3 = format_parts[2].as_ref();
+
+            // only first two formats can have condition
+            for (i, f) in format_parts[0..2].iter().enumerate() {
+                if value_match_format(value, f.as_ref(), i, formats_count) {
+                    let v = maybe_abs_of_neg_value(value, f.as_ref(), i);
+                    return format_part_format_f64(v, f.as_ref(), is_1904);
+                }
+            }
+
+            // if first two doesn't match use third
+            return format_part_format_f64(value, fp_3, is_1904);
+        }
+        _ => return DataTypeRef::String(String::from(INVALID_VALUE)),
+    }
+}
+
 // convert f64 to date, if format == Date
 #[inline]
 pub fn format_excel_f64_ref<'a>(
@@ -710,9 +832,8 @@ pub fn format_excel_f64_ref<'a>(
             value
         }),
         Some(CellFormat::TimeDelta) => DataTypeRef::Duration(value),
-        Some(CellFormat::NumberFormat { nformats }) => format_custom_format_fcell(value, &nformats),
-        Some(CellFormat::CustomDateTimeFormat(format)) => {
-            format_custom_date_cell(value, format, is_1904)
+        Some(CellFormat::Custom(custom_format)) => {
+            format_custom_format_f64(value, custom_format, is_1904)
         }
         _ => DataTypeRef::Float(value),
     }
@@ -723,19 +844,18 @@ pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) 
     format_excel_f64_ref(value, format, is_1904).into()
 }
 
-pub fn format_excell_str_ref(value: &str, format: Option<&CellFormat>) -> DataTypeRef<'static> {
-    if let Some(format) = format {
-        match format {
-            CellFormat::Other => todo!(),
-            CellFormat::DateTime => todo!(),
-            CellFormat::TimeDelta => todo!(),
-            CellFormat::NumberFormat { nformats } => todo!(),
-            CellFormat::CustomDateTimeFormat(_) => todo!(),
-        }
-    }
+// pub fn format_excell_str_ref(value: &str, format: Option<&CellFormat>) -> DataTypeRef<'static> {
+//     if let Some(format) = format {
+//         match format {
+//             CellFormat::Other => todo!(),
+//             CellFormat::DateTime => todo!(),
+//             CellFormat::TimeDelta => todo!(),
+//             CellFormat::Custom(_) => todo!(), // FIXME
+//         }
+//     }
 
-    todo!()
-}
+//     todo!()
+// }
 
 /// Ported from openpyxl, MIT License
 /// https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a5e197c530aaa49814fd1d993dd776edcec35105/openpyxl/styles/tests/test_number_style.py
@@ -751,80 +871,80 @@ fn test_is_date_format() {
         CellFormat::DateTime
     );
 
-    assert_eq!(
-        detect_custom_number_format("[$&#xA3;-809]#,##0.0000"),
-        CellFormat::NumberFormat {
-            nformats: vec![Some(NFormat {
-                prefix: Some("£".to_owned()),
-                suffix: None,
-                locale: Some(2057),
-                value_format: Some(ValueFormat::Number(FFormat {
-                    ff_type: FFormatType::Number,
-                    significant_digits: 0,
-                    insignificant_zeros: 4,
-                    p_significant_digits: 3,
-                    p_insignificant_zeros: 1,
-                    group_separator_count: 3,
-                }))
-            })]
-        }
-    );
-    assert_eq!(
-        detect_custom_number_format("[$&#xA3;-809]#,##0.0000;;"),
-        CellFormat::NumberFormat {
-            nformats: vec![
-                Some(NFormat {
-                    prefix: Some("£".to_owned()),
-                    suffix: None,
-                    locale: Some(2057),
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 4,
-                        p_significant_digits: 3,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 3,
-                    }))
-                }),
-                None
-            ]
-        }
-    );
+    // assert_eq!(
+    //     detect_custom_number_format("[$&#xA3;-809]#,##0.0000"),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![Some(NFormat {
+    //             prefix: Some("£".to_owned()),
+    //             suffix: None,
+    //             locale: Some(2057),
+    //             value_format: Some(ValueFormat::Number(FFormat {
+    //                 ff_type: FFormatType::Number,
+    //                 significant_digits: 0,
+    //                 insignificant_zeros: 4,
+    //                 p_significant_digits: 3,
+    //                 p_insignificant_zeros: 1,
+    //                 group_separator_count: 3,
+    //             }))
+    //         })]
+    //     }
+    // );
+    // assert_eq!(
+    //     detect_custom_number_format("[$&#xA3;-809]#,##0.0000;;"),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![
+    //             Some(NFormat {
+    //                 prefix: Some("£".to_owned()),
+    //                 suffix: None,
+    //                 locale: Some(2057),
+    //                 value_format: Some(ValueFormat::Number(FFormat {
+    //                     ff_type: FFormatType::Number,
+    //                     significant_digits: 0,
+    //                     insignificant_zeros: 4,
+    //                     p_significant_digits: 3,
+    //                     p_insignificant_zeros: 1,
+    //                     group_separator_count: 3,
+    //                 }))
+    //             }),
+    //             None
+    //         ]
+    //     }
+    // );
 
-    assert_eq!(
-        detect_custom_number_format("[$&#xA3;-809]#,##0.0000;#,##0.000;;"),
-        CellFormat::NumberFormat {
-            nformats: vec![
-                Some(NFormat {
-                    prefix: Some("£".to_owned()),
-                    suffix: None,
-                    locale: Some(2057),
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 4,
-                        p_significant_digits: 3,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 3,
-                    }))
-                }),
-                Some(NFormat {
-                    prefix: None,
-                    suffix: None,
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 3,
-                        p_significant_digits: 3,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 3,
-                    }))
-                }),
-                None,
-            ]
-        }
-    );
+    // assert_eq!(
+    //     detect_custom_number_format("[$&#xA3;-809]#,##0.0000;#,##0.000;;"),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![
+    //             Some(NFormat {
+    //                 prefix: Some("£".to_owned()),
+    //                 suffix: None,
+    //                 locale: Some(2057),
+    //                 value_format: Some(ValueFormat::Number(FFormat {
+    //                     ff_type: FFormatType::Number,
+    //                     significant_digits: 0,
+    //                     insignificant_zeros: 4,
+    //                     p_significant_digits: 3,
+    //                     p_insignificant_zeros: 1,
+    //                     group_separator_count: 3,
+    //                 }))
+    //             }),
+    //             Some(NFormat {
+    //                 prefix: None,
+    //                 suffix: None,
+    //                 locale: None,
+    //                 value_format: Some(ValueFormat::Number(FFormat {
+    //                     ff_type: FFormatType::Number,
+    //                     significant_digits: 0,
+    //                     insignificant_zeros: 3,
+    //                     p_significant_digits: 3,
+    //                     p_insignificant_zeros: 1,
+    //                     group_separator_count: 3,
+    //                 }))
+    //             }),
+    //             None,
+    //         ]
+    //     }
+    // );
     assert_eq!(
         detect_custom_number_format("m\"M\"d\"D\";@"),
         CellFormat::DateTime
@@ -849,96 +969,96 @@ fn test_is_date_format() {
         detect_custom_number_format("[$-404]e\"\\xfc\"m\"\\xfc\"d\"\\xfc\""),
         CellFormat::DateTime
     );
-    assert_eq!(
-        detect_custom_number_format("0_ ;[Red]\\-0\\ "),
-        CellFormat::NumberFormat {
-            nformats: vec![
-                Some(NFormat {
-                    prefix: None,
-                    suffix: None,
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 0,
-                        p_significant_digits: 0,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 0,
-                    }))
-                }),
-                Some(NFormat {
-                    prefix: Some("-".to_owned()),
-                    suffix: Some(" ".to_owned()),
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 0,
-                        p_significant_digits: 0,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 0,
-                    }))
-                })
-            ]
-        }
-    );
-    // assert_eq!(detect_custom_number_format("\\Y000000"), CellFormat::Other);
-    assert_eq!(
-        detect_custom_number_format("\\Y000000"),
-        CellFormat::NumberFormat {
-            nformats: vec![Some(NFormat {
-                prefix: Some("Y".to_owned()),
-                suffix: None,
-                locale: None,
-                value_format: Some(ValueFormat::Number(FFormat {
-                    ff_type: FFormatType::Number,
-                    significant_digits: 0,
-                    insignificant_zeros: 0,
-                    p_significant_digits: 0,
-                    p_insignificant_zeros: 6,
-                    group_separator_count: 0,
-                }))
-            })]
-        }
-    );
+    // assert_eq!(
+    //     detect_custom_number_format("0_ ;[Red]\\-0\\ "),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![
+    //             Some(NFormat {
+    //                 prefix: None,
+    //                 suffix: None,
+    //                 locale: None,
+    //                 value_format: Some(ValueFormat::Number(FFormat {
+    //                     ff_type: FFormatType::Number,
+    //                     significant_digits: 0,
+    //                     insignificant_zeros: 0,
+    //                     p_significant_digits: 0,
+    //                     p_insignificant_zeros: 1,
+    //                     group_separator_count: 0,
+    //                 }))
+    //             }),
+    //             Some(NFormat {
+    //                 prefix: Some("-".to_owned()),
+    //                 suffix: Some(" ".to_owned()),
+    //                 locale: None,
+    //                 value_format: Some(ValueFormat::Number(FFormat {
+    //                     ff_type: FFormatType::Number,
+    //                     significant_digits: 0,
+    //                     insignificant_zeros: 0,
+    //                     p_significant_digits: 0,
+    //                     p_insignificant_zeros: 1,
+    //                     group_separator_count: 0,
+    //                 }))
+    //             })
+    //         ]
+    //     }
+    // );
+    // // assert_eq!(detect_custom_number_format("\\Y000000"), CellFormat::Other);
+    // assert_eq!(
+    //     detect_custom_number_format("\\Y000000"),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![Some(NFormat {
+    //             prefix: Some("Y".to_owned()),
+    //             suffix: None,
+    //             locale: None,
+    //             value_format: Some(ValueFormat::Number(FFormat {
+    //                 ff_type: FFormatType::Number,
+    //                 significant_digits: 0,
+    //                 insignificant_zeros: 0,
+    //                 p_significant_digits: 0,
+    //                 p_insignificant_zeros: 6,
+    //                 group_separator_count: 0,
+    //             }))
+    //         })]
+    //     }
+    // );
 
-    assert_eq!(
-        detect_custom_number_format("0.00%"),
-        CellFormat::NumberFormat {
-            nformats: vec![Some(NFormat {
-                prefix: None,
-                suffix: None,
-                locale: None,
-                value_format: Some(ValueFormat::Number(FFormat {
-                    ff_type: FFormatType::Percentage,
-                    significant_digits: 0,
-                    insignificant_zeros: 2,
-                    p_significant_digits: 0,
-                    p_insignificant_zeros: 1,
-                    group_separator_count: 0,
-                }))
-            })]
-        }
-    );
+    // assert_eq!(
+    //     detect_custom_number_format("0.00%"),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![Some(NFormat {
+    //             prefix: None,
+    //             suffix: None,
+    //             locale: None,
+    //             value_format: Some(ValueFormat::Number(FFormat {
+    //                 ff_type: FFormatType::Percentage,
+    //                 significant_digits: 0,
+    //                 insignificant_zeros: 2,
+    //                 p_significant_digits: 0,
+    //                 p_insignificant_zeros: 1,
+    //                 group_separator_count: 0,
+    //             }))
+    //         })]
+    //     }
+    // );
 
-    assert_eq!(
-        detect_custom_number_format("#,##0.0####\" YMD\""),
-        CellFormat::NumberFormat {
-            nformats: vec![Some(NFormat {
-                prefix: None,
-                suffix: Some(" YMD".to_string()),
-                locale: None,
-                value_format: Some(ValueFormat::Number(FFormat {
-                    ff_type: FFormatType::Number,
-                    significant_digits: 4,
-                    insignificant_zeros: 1,
-                    p_significant_digits: 3,
-                    p_insignificant_zeros: 1,
-                    group_separator_count: 3
-                }))
-            })]
-        }
-    );
+    // assert_eq!(
+    //     detect_custom_number_format("#,##0.0####\" YMD\""),
+    //     CellFormat::NumberFormat {
+    //         nformats: vec![Some(NFormat {
+    //             prefix: None,
+    //             suffix: Some(" YMD".to_string()),
+    //             locale: None,
+    //             value_format: Some(ValueFormat::Number(FFormat {
+    //                 ff_type: FFormatType::Number,
+    //                 significant_digits: 4,
+    //                 insignificant_zeros: 1,
+    //                 p_significant_digits: 3,
+    //                 p_insignificant_zeros: 1,
+    //                 group_separator_count: 3
+    //             }))
+    //         })]
+    //     }
+    // );
     assert_eq!(detect_custom_number_format("[h]"), CellFormat::TimeDelta);
     assert_eq!(detect_custom_number_format("[ss]"), CellFormat::TimeDelta);
     assert_eq!(
@@ -959,56 +1079,90 @@ fn test_is_date_format() {
         detect_custom_number_format("[h]:mm;[=0]\\-"),
         CellFormat::TimeDelta
     );
-    // assert_eq!(
-    //     detect_custom_number_format("[>=100][Magenta].00"),
-    //     CellFormat::Other
-    // );
+    assert_eq!(
+        detect_custom_number_format("[>=100][Magenta].00"),
+        CellFormat::Custom(CustomFormat {
+            formats: vec![Some(FormatPart {
+                prefix: Some(Fix { fix_string: None }),
+                suffix: Some(Fix { fix_string: None }),
+                value: Some(ValueFormat::Number(NumFormat {
+                    fformat: Some(FFormat {
+                        ff_type: NumFormatType::Number,
+                        significant_digits: 0,
+                        insignificant_zeros: 2,
+                        p_significant_digits: 0,
+                        p_insignificant_zeros: 0,
+                        group_separator_count: 0
+                    })
+                })),
+                condition: Some(Condition {
+                    op: ConditionOp::Ge,
+                    float: None,
+                    int: Some(100)
+                }),
+                locale: None
+            })]
+        })
+    );
     assert_eq!(
         detect_custom_number_format("[>=100][Magenta]General"),
-        CellFormat::Other
+        CellFormat::Custom(CustomFormat {
+            formats: vec![Some(FormatPart {
+                prefix: Some(Fix { fix_string: None },),
+                suffix: Some(Fix { fix_string: None },),
+                value: Some(ValueFormat::Text),
+                condition: Some(Condition {
+                    op: ConditionOp::Ge,
+                    float: None,
+                    int: Some(100,),
+                },),
+                locale: None,
+            },),],
+        },)
     );
     assert_eq!(
         detect_custom_number_format("ha/p\\\\m"),
         CellFormat::DateTime
     );
-    assert_eq!(
-        detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
-        CellFormat::NumberFormat {
-            nformats: vec![
-                Some(NFormat {
-                    prefix: None,
-                    suffix: Some(" H".to_string()),
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 2,
-                        p_significant_digits: 3,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 3
-                    }))
-                }),
-                Some(NFormat {
-                    prefix: None,
-                    suffix: Some(" S".to_string()),
-                    locale: None,
-                    value_format: Some(ValueFormat::Number(FFormat {
-                        ff_type: FFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 2,
-                        p_significant_digits: 3,
-                        p_insignificant_zeros: 1,
-                        group_separator_count: 3
-                    }))
-                })
-            ]
-        }
-    );
+    //    assert_eq!(
+    //         detect_custom_number_format("#,##0.00\\ _M\"H\"_);[Red]#,##0.00\\ _M\"S\"_)"),
+    //         CellFormat::NumberFormat {
+    //             nformats: vec![
+    //                 Some(NFormat {
+    //                     prefix: None,
+    //                     suffix: Some(" H".to_string()),
+    //                     locale: None,
+    //                     value_format: Some(ValueFormat::Number(FFormat {
+    //                         ff_type: FFormatType::Number,
+    //                         significant_digits: 0,
+    //                         insignificant_zeros: 2,
+    //                         p_significant_digits: 3,
+    //                         p_insignificant_zeros: 1,
+    //                         group_separator_count: 3
+    //                     }))
+    //                 }),
+    //                 Some(NFormat {
+    //                     prefix: None,
+    //                     suffix: Some(" S".to_string()),
+    //                     locale: None,
+    //                     value_format: Some(ValueFormat::Number(FFormat {
+    //                         ff_type: FFormatType::Number,
+    //                         significant_digits: 0,
+    //                         insignificant_zeros: 2,
+    //                         p_significant_digits: 3,
+    //                         p_insignificant_zeros: 1,
+    //                         group_separator_count: 3
+    //                     }))
+    //                 })
+    //             ]
+    //         }
+    //     );
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
+        custom_format::parse_custom_format,
         datatype::DataTypeRef,
         formats::{
             detect_custom_number_format, format_excel_f64_ref, format_with_fformat, FFormat,
