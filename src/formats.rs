@@ -1,10 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::OnceLock,
-};
+use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
-    custom_format::{parse_custom_format, format_custom_format_f64},
+    custom_format::{format_custom_format_f64, parse_custom_format},
     datatype::DataTypeRef,
     DataType,
 };
@@ -399,8 +396,10 @@ pub fn format_excel_i64(value: i64, format: Option<&CellFormat>, is_1904: bool) 
             }) as f64,
         ),
         Some(CellFormat::TimeDelta) => DataType::Duration(value as f64),
-	// coercing i64 to f64 is ok because Excel store integers as double floats
-        Some(CellFormat::Custom(custom_format)) => format_custom_format_f64(value as f64, custom_format, is_1904).into(),
+        // coercing i64 to f64 is ok because Excel store integers as double floats
+        Some(CellFormat::Custom(custom_format)) => {
+            format_custom_format_f64(value as f64, custom_format, is_1904).into()
+        }
         _ => DataType::Int(value),
     }
 }
@@ -671,7 +670,8 @@ fn test_is_date_format() {
         CellFormat::Custom(CustomFormat {
             formats: vec![Some(FormatPart {
                 prefix: Some(Fix { fix_string: None }),
-                suffix: Some(Fix { fix_string: None }),
+                // suffix: Some(Fix { fix_string: None }),
+                suffix: None,
                 value: Some(ValueFormat::Number(NumFormat {
                     fformat: Some(FFormat {
                         ff_type: NumFormatType::Number,
@@ -696,7 +696,8 @@ fn test_is_date_format() {
         CellFormat::Custom(CustomFormat {
             formats: vec![Some(FormatPart {
                 prefix: Some(Fix { fix_string: None },),
-                suffix: Some(Fix { fix_string: None },),
+                // suffix: Some(Fix { fix_string: None },),
+                suffix: None,
                 value: Some(ValueFormat::Text),
                 condition: Some(Condition {
                     op: ConditionOp::Ge,
@@ -749,11 +750,9 @@ fn test_is_date_format() {
 #[cfg(test)]
 mod test {
     use crate::{
-        custom_format::{parse_custom_format, format_with_fformat},
+        custom_format::format_with_fformat,
         datatype::DataTypeRef,
-        formats::{
-            detect_custom_number_format, format_excel_f64_ref, FFormat,
-        },
+        formats::{detect_custom_number_format, format_excel_f64_ref, FFormat},
     };
 
     #[test]

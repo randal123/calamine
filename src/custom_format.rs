@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 
 use crate::{
+    datatype::DataTypeRef,
     formats::{
-        Condition, ConditionOp, DFormat, FFormat, Fix, FormatPart, NumFormat, NumFormatType,
-        ValueFormat, EXCEL_1900_1904_DIFF, CustomFormat,
+        Condition, ConditionOp, CustomFormat, DFormat, FFormat, Fix, FormatPart, NumFormat,
+        NumFormatType, ValueFormat, EXCEL_1900_1904_DIFF,
     },
-    locales::{get_locale_symbols, get_time_locale, LocaleData}, datatype::DataTypeRef,
+    locales::{get_locale_symbols, get_time_locale, LocaleData},
 };
 use anyhow::anyhow;
 use chrono::{format::StrftimeItems, NaiveDate, NaiveDateTime, NaiveTime};
@@ -15,16 +16,11 @@ use std::fmt::Write;
 struct ReadResult<T> {
     result: T,
     offset: usize,
-    end: bool,
 }
 
 impl<T> ReadResult<T> {
-    fn new(result: T, offset: usize, end: bool) -> Self {
-        Self {
-            result,
-            offset,
-            end,
-        }
+    fn new(result: T, offset: usize) -> Self {
+        Self { result, offset }
     }
 }
 
@@ -48,7 +44,7 @@ fn read_locale(fmt: &[char]) -> anyhow::Result<ReadResult<usize>> {
             value += v;
             shift += 4;
         }
-        return Ok(ReadResult::new(value, end_index, false));
+        return Ok(ReadResult::new(value, end_index));
     }
 
     Err(anyhow!(
@@ -65,14 +61,12 @@ fn read_condition_op(fmt: &[char]) -> anyhow::Result<ReadResult<ConditionOp>> {
                     return Ok(ReadResult {
                         result: ConditionOp::Ge,
                         offset: 2,
-                        end: false,
                     })
                 }
                 _ => {
                     return Ok(ReadResult {
                         result: ConditionOp::Gt,
                         offset: 1,
-                        end: false,
                     })
                 }
             },
@@ -81,21 +75,18 @@ fn read_condition_op(fmt: &[char]) -> anyhow::Result<ReadResult<ConditionOp>> {
                     return Ok(ReadResult {
                         result: ConditionOp::Le,
                         offset: 2,
-                        end: false,
                     })
                 }
                 '>' => {
                     return Ok(ReadResult {
                         result: ConditionOp::Ne,
                         offset: 2,
-                        end: false,
                     })
                 }
                 _ => {
                     return Ok(ReadResult {
                         result: ConditionOp::Lt,
                         offset: 1,
-                        end: false,
                     })
                 }
             },
@@ -103,7 +94,6 @@ fn read_condition_op(fmt: &[char]) -> anyhow::Result<ReadResult<ConditionOp>> {
                 return Ok(ReadResult {
                     result: ConditionOp::Eq,
                     offset: 1,
-                    end: false,
                 })
             }
             '!' => match s[1] {
@@ -111,7 +101,6 @@ fn read_condition_op(fmt: &[char]) -> anyhow::Result<ReadResult<ConditionOp>> {
                     return Ok(ReadResult {
                         result: ConditionOp::Ne,
                         offset: 2,
-                        end: false,
                     })
                 }
                 c => {
@@ -149,7 +138,6 @@ fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
     let ReadResult {
         result: condition_op,
         offset,
-        end: _,
     } = read_condition_op(&fmt[1..])?;
 
     let condition_num = fmt[offset + 1..end_index].iter().collect::<String>();
@@ -158,7 +146,6 @@ fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
         return Ok(ReadResult::new(
             Condition::new(condition_op, None, Some(integer)),
             end_index,
-            false,
         ));
     }
 
@@ -166,7 +153,6 @@ fn read_condition(fmt: &[char]) -> anyhow::Result<ReadResult<Condition>> {
         return Ok(ReadResult::new(
             Condition::new(condition_op, Some(float), None),
             end_index,
-            false,
         ));
     }
 
@@ -222,11 +208,7 @@ fn get_fix(
                             index += 1;
                         } else {
                             // FIXME
-                            if let Ok(ReadResult {
-                                result,
-                                offset,
-                                end: _,
-                            }) = read_condition(&fmt[index..])
+                            if let Ok(ReadResult { result, offset }) = read_condition(&fmt[index..])
                             {
                                 condition = Some(result);
                                 index += offset;
@@ -264,19 +246,11 @@ fn get_fix(
                 }
                 // when not escaped and not inside of brackets start parsing number format or @ text format
                 ('#' | '0' | '?' | ',' | '@' | '.' | 'G', false, false, ..) => {
-                    return Ok(ReadResult::new(
-                        (maybe_string(p), condition, locale),
-                        index,
-                        false,
-                    ));
+                    return Ok(ReadResult::new((maybe_string(p), condition, locale), index));
                 }
                 // this is when we are parsing date format
                 ('y' | 'm' | 'd' | 'h' | 's' | 'a', false, false, ..) => {
-                    return Ok(ReadResult::new(
-                        (maybe_string(p), condition, locale),
-                        index,
-                        false,
-                    ));
+                    return Ok(ReadResult::new((maybe_string(p), condition, locale), index));
                 }
                 // repeat character, for now just ignore, ignore next character also
                 ('*', false, false, ..) => {
@@ -320,7 +294,6 @@ fn get_fix(
                     return Ok(ReadResult::new(
                         (maybe_string(p), condition, locale),
                         index + 1,
-                        true,
                     ));
                 }
                 (_, ..) => {
@@ -333,11 +306,7 @@ fn get_fix(
             }
             index += 1;
         } else {
-            return Ok(ReadResult::new(
-                (maybe_string(p), condition, locale),
-                index,
-                true,
-            ));
+            return Ok(ReadResult::new((maybe_string(p), condition, locale), index));
         }
     }
 }
@@ -356,7 +325,7 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
     let first_char = fmt.get(0);
 
     if first_char.is_none() {
-        return Ok(ReadResult::new(None, index, true));
+        return Ok(ReadResult::new(None, index));
     }
 
     let first_char = first_char.unwrap();
@@ -368,7 +337,7 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
 
     if !first_char.eq(&'0') && !first_char.eq(&'#') && !first_char.eq(&'.') && !first_char.eq(&'?')
     {
-        return Ok(ReadResult::new(None, index, false));
+        return Ok(ReadResult::new(None, index));
     }
 
     for c in fmt {
@@ -405,7 +374,6 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
                         group_separator_count,
                     )),
                     index + 1, // skip '%'
-                    false,
                 ));
             }
             (_, ',') => comma = true,
@@ -419,7 +387,6 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
                         group_separator_count,
                     )),
                     index,
-                    false,
                 ));
             }
         }
@@ -435,7 +402,6 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
             group_separator_count,
         )),
         index,
-        false,
     ));
 }
 
@@ -524,6 +490,7 @@ fn decode_date_time_format(
     let mut months_processed = false;
 
     // we are using '/' as default separator (en_US locale)
+
     let date_separator = if let Some(locale) = locale {
         get_date_separator(locale.d_fmt)
     } else {
@@ -553,7 +520,7 @@ fn decode_date_time_format(
                         continue;
                     }
                 }
-                ';' => return Ok(ReadResult::new(format, index, true)),
+                ';' => return Ok(ReadResult::new(format, index)),
                 'A' => {
                     let current_len = fmt[index..].len();
                     // 3 is minimum to have valid AM/PM marker
@@ -595,7 +562,7 @@ fn decode_date_time_format(
         index += 1;
     }
 
-    Ok(ReadResult::new(format, index, false))
+    Ok(ReadResult::new(format, index))
 }
 
 #[allow(dead_code)]
@@ -617,36 +584,124 @@ fn make_default_condition(index: usize, count: usize) -> Option<Condition> {
     }
 }
 
-// FIXME, format can be "General"
-pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart>>> {
+fn get_format_parts(fmt: &[char]) -> Vec<(usize, usize)> {
+    let mut commas: Vec<usize> = Vec::new();
+    commas.push(0);
+    let mut escaped = false;
+    let mut in_quotes = false;
+    let mut in_brackets = false;
+
+    for (index, c) in fmt.iter().enumerate() {
+        match (c, escaped, in_quotes, in_brackets) {
+            ('\\', false, false, false) => escaped = true,
+            (_, true, false, false) => escaped = false,
+            ('"', false, false, false) => in_quotes = true,
+            ('"', false, true, false) => in_quotes = false,
+            ('[', false, false, false) => in_brackets = true,
+            (']', false, false, true) => in_brackets = false,
+            (';', false, false, false) => commas.push(index),
+            _ => continue,
+        }
+    }
+    commas.push(fmt.len() - 1);
+
+    commas
+        .iter()
+        .zip(commas.iter().skip(1))
+        .map(|(a, b)| (*a, *b))
+        .collect::<Vec<_>>()
+}
+
+fn parse_value_format(
+    fmt: &[char],
+    locale_data: Option<&'static LocaleData>,
+) -> anyhow::Result<ReadResult<ValueFormat>> {
     const GENERAL_MARK: [char; 7] = ['G', 'e', 'n', 'e', 'r', 'a', 'l'];
+    // try General
+    if let Some(slice) = fmt.get(0..GENERAL_MARK.len()) {
+        if slice.eq(&GENERAL_MARK) {
+            return Ok(ReadResult::new(ValueFormat::Text, GENERAL_MARK.len()));
+        }
+    }
 
+    // try @
+    if let Some(c) = fmt.get(0) {
+        if c.eq(&'@') {
+            return Ok(ReadResult::new(ValueFormat::Text, 1));
+        }
+    }
+
+    // numeric format
+    if let Ok(ReadResult {
+        result: Some(fformat),
+        offset,
+    }) = decode_number_format(fmt)
+    {
+        return Ok(ReadResult::new(
+            ValueFormat::Number(NumFormat::new(Some(fformat))),
+            offset,
+        ));
+    }
+
+    // date format
+    if let Ok(ReadResult {
+        result: format,
+        offset,
+    }) = decode_date_time_format(fmt, locale_data)
+    {
+        return Ok(ReadResult::new(
+            ValueFormat::Date(DFormat::new(format)),
+            offset,
+        ));
+    }
+
+    return Err(anyhow!("Unknown fmt: {}", fmt.iter().collect::<String>()));
+}
+
+#[allow(dead_code)]
+pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart>>> {
     let fmt: Vec<char> = format.chars().collect();
-
+    let pairs = get_format_parts(&fmt);
     let mut vformats: Vec<Option<FormatPart>> = Vec::new();
 
-    let mut start = 0;
-
-    loop {
-        // maybe empty format
-        if let Some(ch) = fmt.get(start) {
-            if ch.eq(&';') {
-                vformats.push(None);
-                start += 1;
-                continue;
-            }
-        } else {
-            break;
+    for (mut first, last) in pairs {
+        // check for empty patterns
+        if first == last && fmt[first].eq(&';') {
+            vformats.push(None);
+            continue;
         }
 
+        // skip first char if it's ';
+        if fmt[first].eq(&';') {
+            first += 1;
+            // maybe empty pattern again
+            if fmt[first].eq(&';') {
+                vformats.push(None);
+                continue;
+            }
+        }
+
+        let fmt = fmt
+            .get(first..=last)
+            .ok_or_else(|| anyhow!("Error while parsing {}", format))?;
+
+        let mut start = 0;
+        let end = last - first;
+
+        // get prefix
         let ReadResult {
             result: (prefix, condition, p_locale),
             offset,
-            end,
+            ..
         } = get_fix(&fmt[start..])?;
         start += offset;
 
-        if end {
+        let locale_data = if let Some(locale_index) = p_locale {
+            get_time_locale(locale_index)
+        } else {
+            None
+        };
+        if start > end || fmt[start].eq(&';') {
             vformats.push(Some(FormatPart::new(
                 Some(Fix::new(prefix)),
                 None,
@@ -657,69 +712,15 @@ pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart
             continue;
         }
 
-        let locale_data = if let Some(locale_index) = p_locale {
-            get_time_locale(locale_index)
-        } else {
-            None
-        };
+        // get main format part
+        let ReadResult {
+            result: value_format,
+            offset,
+            ..
+        } = parse_value_format(&fmt[start..], locale_data)?;
+        start += offset;
 
-        let value_format;
-        let is_end;
-
-        'value_format: {
-            // try General
-            if let Some(slice) = fmt.get(start..start + GENERAL_MARK.len()) {
-                if slice.eq(&GENERAL_MARK) {
-                    value_format = ValueFormat::Text;
-                    start += GENERAL_MARK.len();
-                    is_end = false;
-                    break 'value_format;
-                }
-            }
-
-            // try @
-            if let Some(c) = fmt.get(start) {
-                if c.eq(&'@') {
-                    value_format = ValueFormat::Text;
-                    start += 1;
-                    is_end = false;
-                    break 'value_format;
-                }
-            }
-
-            // numeric format
-            if let Ok(ReadResult {
-                result: Some(fformat),
-                offset,
-                end,
-            }) = decode_number_format(&fmt[start..])
-            {
-                value_format = ValueFormat::Number(NumFormat::new(Some(fformat)));
-                start += offset;
-                is_end = end;
-                break 'value_format;
-            }
-
-            // date format
-            if let Ok(ReadResult {
-                result: format,
-                offset,
-                end,
-            }) = decode_date_time_format(&fmt[start..], locale_data)
-            {
-                value_format = ValueFormat::Date(DFormat::new(format));
-                start += offset;
-                is_end = end;
-                break 'value_format;
-            }
-
-            return Err(anyhow!(
-                "Unknown fmt: {}",
-                fmt[start..].iter().collect::<String>()
-            ));
-        }
-
-        if is_end {
+        if start > end || fmt[start].eq(&';') {
             vformats.push(Some(FormatPart::new(
                 Some(Fix::new(prefix)),
                 None,
@@ -732,10 +733,8 @@ pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart
 
         let ReadResult {
             result: (suffix, suffix_condition, s_locale),
-            offset,
-            end: end,
+            ..
         } = get_fix(&fmt[start..])?;
-        start += offset;
 
         // Excel always save condition in first part of format but just in case
         vformats.push(Some(FormatPart::new(
@@ -747,17 +746,9 @@ pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart
         )));
     }
 
-    let fc = vformats.len();
-
-    if fc > 0 {
-        return Ok(vformats);
-    }
-
-    Err(anyhow!(
-        "No valid format found for fmt: {}",
-        fmt.iter().collect::<String>()
-    ))
+    Ok(vformats)
 }
+
 //////////////////////////////////////////////////////////////////////////////////
 // PRINTING
 
@@ -834,7 +825,11 @@ fn format_with_dformat(
     DataTypeRef::DateTime(value)
 }
 
-pub(crate) fn format_with_fformat(mut value: f64, fformat: &FFormat, locale: Option<usize>) -> String {
+pub(crate) fn format_with_fformat(
+    mut value: f64,
+    fformat: &FFormat,
+    locale: Option<usize>,
+) -> String {
     // FIXME, dp limit ??
     fn excell_round(value: f64, dp: i32) -> String {
         let v = 10f64.powi(dp);

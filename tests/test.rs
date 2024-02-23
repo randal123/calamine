@@ -1,5 +1,5 @@
 use calamine::DataType::{
-    Bool, DateTime, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
+    Bool, DateTimeIso, Duration, DurationIso, Empty, Error, Float, String,
 };
 use calamine::{
     open_workbook, open_workbook_auto, Ods, Reader, Sheet, SheetType, SheetVisible, Xls, Xlsb, Xlsx,
