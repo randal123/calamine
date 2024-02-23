@@ -313,10 +313,10 @@ fn get_fix(
 
 // #,##0.00
 fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FFormat>>> {
-    let mut pre_insignificant_zeros: i32 = 0;
-    let mut pre_significant_digits: i32 = 0;
-    let mut post_insignificant_zeros: i32 = 0;
-    let mut post_significant_digits: i32 = 0;
+    let mut pre_iz: i32 = 0;
+    let mut pre_sd: i32 = 0;
+    let mut post_iz: i32 = 0;
+    let mut post_sd: i32 = 0;
     let mut group_separator_count: i32 = 0;
     let mut dot = false;
     let mut index = 0;
@@ -330,11 +330,6 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
 
     let first_char = first_char.unwrap();
 
-    // FIXME, we need to go further until ';' or end of fmt
-    // if first_char.eq(&'@') {
-    //     return Ok(ReadResult::new(Some(ValueFormat::Text), index + 1, false));
-    // }
-
     if !first_char.eq(&'0') && !first_char.eq(&'#') && !first_char.eq(&'.') && !first_char.eq(&'?')
     {
         return Ok(ReadResult::new(None, index));
@@ -343,19 +338,19 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
     for c in fmt {
         match (dot, c) {
             (true, '0') => {
-                post_insignificant_zeros += 1;
+                post_iz += 1;
             }
             (false, '0') => {
-                pre_insignificant_zeros += 1;
+                pre_iz += 1;
                 if comma {
                     group_separator_count += 1;
                 }
             }
             (true, '#' | '?') => {
-                post_significant_digits += 1;
+                post_sd += 1;
             }
             (false, '#' | '?') => {
-                pre_significant_digits += 1;
+                pre_sd += 1;
                 if comma {
                     group_separator_count += 1;
                 }
@@ -367,10 +362,10 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
                 return Ok(ReadResult::new(
                     Some(FFormat::new(
                         NumFormatType::Percentage,
-                        post_significant_digits,
-                        post_insignificant_zeros,
-                        pre_significant_digits,
-                        pre_insignificant_zeros,
+                        post_sd,
+                        post_iz,
+                        pre_sd,
+                        pre_iz,
                         group_separator_count,
                     )),
                     index + 1, // skip '%'
@@ -380,10 +375,10 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
             _ => {
                 return Ok(ReadResult::new(
                     Some(FFormat::new_number_format(
-                        post_significant_digits,
-                        post_insignificant_zeros,
-                        pre_significant_digits,
-                        pre_insignificant_zeros,
+                        post_sd,
+                        post_iz,
+                        pre_sd,
+                        pre_iz,
                         group_separator_count,
                     )),
                     index,
@@ -395,10 +390,10 @@ fn decode_number_format(fmt: &[char]) -> anyhow::Result<ReadResult<Option<FForma
 
     return Ok(ReadResult::new(
         Some(FFormat::new_number_format(
-            post_significant_digits,
-            post_insignificant_zeros,
-            pre_significant_digits,
-            pre_insignificant_zeros,
+            post_sd,
+            post_iz,
+            pre_sd,
+            pre_iz,
             group_separator_count,
         )),
         index,
@@ -847,15 +842,15 @@ pub(crate) fn format_with_fformat(
     let decimal_point = locale_data.map_or(".", |ld| ld.num_decimal_point);
     let thousand_separator = locale_data.map_or(",", |ld| ld.num_thousands_sep);
 
-    let dec_places = fformat.significant_digits + fformat.insignificant_zeros;
+    let dec_places = fformat.sd + fformat.iz;
 
-    let significant_digits = fformat.significant_digits;
-    let insignificant_zeros = fformat.insignificant_zeros;
+    let sd = fformat.sd;
+    let iz = fformat.iz;
     let grouping_count = fformat.group_separator_count;
 
     let mut str_value = excell_round(value, dec_places as i32);
 
-    if grouping_count == 0 && significant_digits == 0 {
+    if grouping_count == 0 && sd == 0 {
         if fformat.ff_type == NumFormatType::Percentage {
             str_value.push('%');
         }
@@ -895,7 +890,7 @@ pub(crate) fn format_with_fformat(
     for (_, ch) in chars_value.iter().rev().enumerate() {
         match (*ch, dot) {
             ('0', false) => {
-                if value_decimal_places <= insignificant_zeros {
+                if value_decimal_places <= iz {
                     new_str_value.push_front(*ch);
                 }
             }
@@ -931,18 +926,18 @@ pub(crate) fn format_with_fformat(
         }
     }
 
-    // feel front with zeros if we have more p_insignificant_zeros
+    // feel front with zeros if we have more p_iz
     if dot {
-        if nums < (fformat.p_insignificant_zeros) {
-            for _ in 0..(fformat.p_insignificant_zeros - nums) {
+        if nums < (fformat.p_iz) {
+            for _ in 0..(fformat.p_iz - nums) {
                 new_str_value.push_front('0');
             }
         }
     } else {
         // here we now that we don't have decimal place so we can count all digits
         let vl: i32 = chars_value.len() as i32;
-        if vl < (fformat.p_significant_digits) {
-            for _ in 0..(fformat.p_insignificant_zeros - vl) {
+        if vl < (fformat.p_sd) {
+            for _ in 0..(fformat.p_iz - vl) {
                 new_str_value.push_front('0');
             }
         }

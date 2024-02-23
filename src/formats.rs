@@ -144,46 +144,49 @@ pub enum NumFormatType {
 #[derive(Debug, PartialEq, Clone)]
 pub struct FFormat {
     pub ff_type: NumFormatType,
-    pub significant_digits: i32,
-    pub insignificant_zeros: i32,
-    /// next two are for digits/zeros before decimal point
-    pub p_significant_digits: i32,
-    pub p_insignificant_zeros: i32,
+    // significant digits after decimal point
+    pub sd: i32,
+    // insignificant zeros after decimal point
+    pub iz: i32,
+    // significant digits before decimal point
+    pub p_sd: i32,
+    // insignificant zeros before decimal point
+    pub p_iz: i32,
     pub group_separator_count: i32,
 }
 
 impl FFormat {
     pub fn new(
         ff_type: NumFormatType,
-        significant_digits: i32,
-        insignificant_zeros: i32,
-        p_significant_digits: i32,
-        p_insignificant_zeros: i32,
+        sd: i32,
+        iz: i32,
+        p_sd: i32,
+        p_iz: i32,
         group_separator_count: i32,
     ) -> Self {
         Self {
             ff_type,
-            significant_digits,
-            insignificant_zeros,
-            p_significant_digits,
-            p_insignificant_zeros,
+            sd,
+            iz,
+            p_sd,
+            p_iz,
             group_separator_count,
         }
     }
 
     pub fn new_number_format(
-        significant_digits: i32,
-        insignificant_zeros: i32,
-        p_significant_digits: i32,
-        p_insignificant_zeros: i32,
+        sd: i32,
+        iz: i32,
+        p_sd: i32,
+        p_iz: i32,
         group_separator_count: i32,
     ) -> Self {
         Self {
             ff_type: NumFormatType::Number,
-            significant_digits,
-            insignificant_zeros,
-            p_significant_digits,
-            p_insignificant_zeros,
+            sd,
+            iz,
+            p_sd,
+            p_iz,
             group_separator_count,
         }
     }
@@ -466,10 +469,10 @@ fn test_is_date_format() {
     //             locale: Some(2057),
     //             value_format: Some(ValueFormat::Number(FFormat {
     //                 ff_type: FFormatType::Number,
-    //                 significant_digits: 0,
-    //                 insignificant_zeros: 4,
-    //                 p_significant_digits: 3,
-    //                 p_insignificant_zeros: 1,
+    //                 sd: 0,
+    //                 iz: 4,
+    //                 p_sd: 3,
+    //                 p_iz: 1,
     //                 group_separator_count: 3,
     //             }))
     //         })]
@@ -485,10 +488,10 @@ fn test_is_date_format() {
     //                 locale: Some(2057),
     //                 value_format: Some(ValueFormat::Number(FFormat {
     //                     ff_type: FFormatType::Number,
-    //                     significant_digits: 0,
-    //                     insignificant_zeros: 4,
-    //                     p_significant_digits: 3,
-    //                     p_insignificant_zeros: 1,
+    //                     sd: 0,
+    //                     iz: 4,
+    //                     p_sd: 3,
+    //                     p_iz: 1,
     //                     group_separator_count: 3,
     //                 }))
     //             }),
@@ -507,10 +510,10 @@ fn test_is_date_format() {
     //                 locale: Some(2057),
     //                 value_format: Some(ValueFormat::Number(FFormat {
     //                     ff_type: FFormatType::Number,
-    //                     significant_digits: 0,
-    //                     insignificant_zeros: 4,
-    //                     p_significant_digits: 3,
-    //                     p_insignificant_zeros: 1,
+    //                     sd: 0,
+    //                     iz: 4,
+    //                     p_sd: 3,
+    //                     p_iz: 1,
     //                     group_separator_count: 3,
     //                 }))
     //             }),
@@ -520,10 +523,10 @@ fn test_is_date_format() {
     //                 locale: None,
     //                 value_format: Some(ValueFormat::Number(FFormat {
     //                     ff_type: FFormatType::Number,
-    //                     significant_digits: 0,
-    //                     insignificant_zeros: 3,
-    //                     p_significant_digits: 3,
-    //                     p_insignificant_zeros: 1,
+    //                     sd: 0,
+    //                     iz: 3,
+    //                     p_sd: 3,
+    //                     p_iz: 1,
     //                     group_separator_count: 3,
     //                 }))
     //             }),
@@ -565,10 +568,10 @@ fn test_is_date_format() {
     //                 locale: None,
     //                 value_format: Some(ValueFormat::Number(FFormat {
     //                     ff_type: FFormatType::Number,
-    //                     significant_digits: 0,
-    //                     insignificant_zeros: 0,
-    //                     p_significant_digits: 0,
-    //                     p_insignificant_zeros: 1,
+    //                     sd: 0,
+    //                     iz: 0,
+    //                     p_sd: 0,
+    //                     p_iz: 1,
     //                     group_separator_count: 0,
     //                 }))
     //             }),
@@ -578,10 +581,10 @@ fn test_is_date_format() {
     //                 locale: None,
     //                 value_format: Some(ValueFormat::Number(FFormat {
     //                     ff_type: FFormatType::Number,
-    //                     significant_digits: 0,
-    //                     insignificant_zeros: 0,
-    //                     p_significant_digits: 0,
-    //                     p_insignificant_zeros: 1,
+    //                     sd: 0,
+    //                     iz: 0,
+    //                     p_sd: 0,
+    //                     p_iz: 1,
     //                     group_separator_count: 0,
     //                 }))
     //             })
@@ -598,10 +601,10 @@ fn test_is_date_format() {
     //             locale: None,
     //             value_format: Some(ValueFormat::Number(FFormat {
     //                 ff_type: FFormatType::Number,
-    //                 significant_digits: 0,
-    //                 insignificant_zeros: 0,
-    //                 p_significant_digits: 0,
-    //                 p_insignificant_zeros: 6,
+    //                 sd: 0,
+    //                 iz: 0,
+    //                 p_sd: 0,
+    //                 p_iz: 6,
     //                 group_separator_count: 0,
     //             }))
     //         })]
@@ -617,10 +620,10 @@ fn test_is_date_format() {
     //             locale: None,
     //             value_format: Some(ValueFormat::Number(FFormat {
     //                 ff_type: FFormatType::Percentage,
-    //                 significant_digits: 0,
-    //                 insignificant_zeros: 2,
-    //                 p_significant_digits: 0,
-    //                 p_insignificant_zeros: 1,
+    //                 sd: 0,
+    //                 iz: 2,
+    //                 p_sd: 0,
+    //                 p_iz: 1,
     //                 group_separator_count: 0,
     //             }))
     //         })]
@@ -636,10 +639,10 @@ fn test_is_date_format() {
     //             locale: None,
     //             value_format: Some(ValueFormat::Number(FFormat {
     //                 ff_type: FFormatType::Number,
-    //                 significant_digits: 4,
-    //                 insignificant_zeros: 1,
-    //                 p_significant_digits: 3,
-    //                 p_insignificant_zeros: 1,
+    //                 sd: 4,
+    //                 iz: 1,
+    //                 p_sd: 3,
+    //                 p_iz: 1,
     //                 group_separator_count: 3
     //             }))
     //         })]
@@ -675,10 +678,10 @@ fn test_is_date_format() {
                 value: Some(ValueFormat::Number(NumFormat {
                     fformat: Some(FFormat {
                         ff_type: NumFormatType::Number,
-                        significant_digits: 0,
-                        insignificant_zeros: 2,
-                        p_significant_digits: 0,
-                        p_insignificant_zeros: 0,
+                        sd: 0,
+                        iz: 2,
+                        p_sd: 0,
+                        p_iz: 0,
                         group_separator_count: 0
                     })
                 })),
@@ -722,10 +725,10 @@ fn test_is_date_format() {
     //                     locale: None,
     //                     value_format: Some(ValueFormat::Number(FFormat {
     //                         ff_type: FFormatType::Number,
-    //                         significant_digits: 0,
-    //                         insignificant_zeros: 2,
-    //                         p_significant_digits: 3,
-    //                         p_insignificant_zeros: 1,
+    //                         sd: 0,
+    //                         iz: 2,
+    //                         p_sd: 3,
+    //                         p_iz: 1,
     //                         group_separator_count: 3
     //                     }))
     //                 }),
@@ -735,10 +738,10 @@ fn test_is_date_format() {
     //                     locale: None,
     //                     value_format: Some(ValueFormat::Number(FFormat {
     //                         ff_type: FFormatType::Number,
-    //                         significant_digits: 0,
-    //                         insignificant_zeros: 2,
-    //                         p_significant_digits: 3,
-    //                         p_insignificant_zeros: 1,
+    //                         sd: 0,
+    //                         iz: 2,
+    //                         p_sd: 3,
+    //                         p_iz: 1,
     //                         group_separator_count: 3
     //                     }))
     //                 })
