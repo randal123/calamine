@@ -653,8 +653,48 @@ fn parse_value_format(
     return Err(anyhow!("Unknown fmt: {}", fmt.iter().collect::<String>()));
 }
 
+pub(crate) fn calculate_negative_format(formats: &[Option<FormatPart>]) -> Option<usize> {
+    fn only_sign(f: Option<&FormatPart>, fun: impl Fn(&Condition) -> bool, dflt: bool) -> bool {
+        f.map_or(dflt, |fp| fp.condition.as_ref().map_or(dflt, |c| fun(c)))
+    }
+
+    let fcount = formats.len();
+    if fcount < 2 {
+        return None;
+    }
+
+    let has_custom_conditions = formats
+        .iter()
+        .any(|f| f.as_ref().map_or(false, |ref f| f.condition.is_some()));
+
+    if !has_custom_conditions {
+        return Some(1);
+    }
+
+    let f1 = formats[0].as_ref();
+    let f2 = formats[1].as_ref();
+
+    if only_sign(f1, Condition::only_negative, false) {
+        return Some(0);
+    }
+
+    if fcount == 2 {
+        if only_sign(f2, Condition::only_negative, true)
+            && only_sign(f1, Condition::only_positive, true)
+        {
+            return Some(1);
+        }
+    } else {
+        if only_sign(f2, Condition::only_negative, true) {
+            return Some(1);
+        }
+    }
+
+    None
+}
+
 #[allow(dead_code)]
-pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart>>> {
+pub fn parse_custom_format(format: &str) -> anyhow::Result<CustomFormat> {
     let fmt: Vec<char> = format.chars().collect();
     let pairs = get_format_parts(&fmt);
     let mut vformats: Vec<Option<FormatPart>> = Vec::new();
@@ -741,7 +781,12 @@ pub fn parse_custom_format(format: &str) -> anyhow::Result<Vec<Option<FormatPart
         )));
     }
 
-    Ok(vformats)
+    let negative_format = calculate_negative_format(&vformats);
+
+    Ok(CustomFormat {
+        formats: vformats,
+        negative_format,
+    })
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -1017,6 +1062,26 @@ fn no_value_format(format: &FormatPart) -> DataTypeRef<'static> {
     DataTypeRef::String(format!("{}{}", prefix, suffix))
 }
 
+pub fn format_part_format_str(value: &str, format_part: &FormatPart) -> DataTypeRef<'static> {
+    let prefix = format_part.prefix.as_ref().map_or_else(
+        || "",
+        |fix| fix.fix_string.as_ref().map_or_else(|| "", |s| &s),
+    );
+
+    let suffix = format_part.suffix.as_ref().map_or_else(
+        || "",
+        |fix| fix.fix_string.as_ref().map_or_else(|| "", |s| &s),
+    );
+
+    let text_value = if let Some(ValueFormat::Text) = format_part.value {
+        value
+    } else {
+        ""
+    };
+
+    DataTypeRef::String(format!("{}{}{}", prefix, text_value, suffix))
+}
+
 pub fn format_part_format_f64(
     value: f64,
     format_part: Option<&FormatPart>,
@@ -1034,18 +1099,40 @@ pub fn format_part_format_f64(
 
     match value_format {
         Some(ValueFormat::Number(ref nf)) => format_num_format(value, format, nf),
+        // FIXME, date can have prefix and suffix
         Some(ValueFormat::Date(ref df)) => format_with_dformat(value, df, format.locale, is_1904),
-        Some(ValueFormat::Text) => todo!(),
+        Some(ValueFormat::Text) => format_part_format_str(&value.to_string(), format),
         None => no_value_format(format),
     }
 }
 
+pub fn format_custom_format_str(value: &str, custom_format: &CustomFormat) -> DataTypeRef<'static> {
+    if let Some(value_format) = custom_format.formats.get(3) {
+        if let Some(format_part) = value_format {
+            format_part_format_str(value, format_part)
+        } else {
+            DataTypeRef::String(String::from(""))
+        }
+    } else {
+        // FIXME, maybe ######
+        DataTypeRef::String(String::from(""))
+    }
+}
+
 pub fn format_custom_format_f64(
-    value: f64,
+    mut value: f64,
     custom_format: &CustomFormat,
     is_1904: bool,
 ) -> DataTypeRef<'static> {
     fn format_index_match(v: f64, format_index: usize, formats_count: usize) -> bool {
+        if formats_count == 2 && format_index == 1 {
+            return true;
+        }
+
+        if formats_count == 3 && format_index == 2 {
+            return true;
+        }
+
         if v > 0.0 {
             format_index == 0
         } else if v < 0.0 {
@@ -1076,25 +1163,7 @@ pub fn format_custom_format_f64(
         }
     }
 
-    // in some cases we need to use abs() of negative value
-    // case: when format doesn't have custom condition and it's default format meant for negative values (2. format)
-    fn maybe_abs_of_neg_value(value: f64, format: Option<&FormatPart>, format_index: usize) -> f64 {
-        if format_index != 1 {
-            return value;
-        }
-
-        let Some(format) = format else {
-            return value;
-        };
-
-        let Some(ref _cond) = format.condition else {
-            // if format doesn't have custom condition use abs()
-            return value.abs();
-        };
-
-        value
-    }
-
+    let only_negative_format = custom_format.negative_format;
     let formats_count = custom_format.formats.len();
     let format_parts = &custom_format.formats;
     let has_custom_conditions = format_parts
@@ -1119,11 +1188,16 @@ pub fn format_custom_format_f64(
             let fp_2 = format_parts[1].as_ref();
 
             if value_match_format(value, fp_1, 0, 2) {
+                if only_negative_format.map_or(false, |x| x == 0) {
+                    value = value.abs();
+                }
                 return format_part_format_f64(value, fp_1, is_1904);
             } else {
                 if value_match_format(value, fp_2, 1, 2) {
-                    let v = maybe_abs_of_neg_value(value, fp_2, 1);
-                    return format_part_format_f64(v, fp_2, is_1904);
+                    if only_negative_format.map_or(false, |x| x == 1) {
+                        value = value.abs();
+                    }
+                    return format_part_format_f64(value, fp_2, is_1904);
                 } else {
                     // if both formats have custom condition then Excel prints ###########
                     return DataTypeRef::String(String::from(INVALID_VALUE));
@@ -1147,8 +1221,10 @@ pub fn format_custom_format_f64(
             // only first two formats can have condition
             for (i, f) in format_parts[0..2].iter().enumerate() {
                 if value_match_format(value, f.as_ref(), i, formats_count) {
-                    let v = maybe_abs_of_neg_value(value, f.as_ref(), i);
-                    return format_part_format_f64(v, f.as_ref(), is_1904);
+                    if only_negative_format.map_or(false, |x| x == i) {
+                        value = value.abs();
+                    }
+                    return format_part_format_f64(value, f.as_ref(), is_1904);
                 }
             }
 

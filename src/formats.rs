@@ -1,7 +1,9 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
-    custom_format::{format_custom_format_f64, parse_custom_format},
+    custom_format::{
+        self, format_custom_format_f64, format_custom_format_str, parse_custom_format,
+    },
     datatype::DataTypeRef,
     DataType,
 };
@@ -120,6 +122,16 @@ impl Condition {
             ConditionOp::Eq => v == opv,
             ConditionOp::Ne => v != opv,
         }
+    }
+
+    pub fn only_negative(&self) -> bool {
+        self.op.eq(&ConditionOp::Lt)
+            && (self.float.unwrap_or(1.0) == 0.0 || self.int.unwrap_or(1) == 0)
+    }
+
+    pub fn only_positive(&self) -> bool {
+        (self.op.eq(&ConditionOp::Gt) || self.op.eq(&ConditionOp::Ge))
+            && (self.float.unwrap_or(1.0) == 0.0 || self.int.unwrap_or(1) == 0)
     }
 }
 
@@ -251,6 +263,7 @@ impl FormatPart {
 #[derive(Debug, PartialEq, Clone)]
 pub struct CustomFormat {
     pub formats: Vec<Option<FormatPart>>,
+    pub negative_format: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -264,8 +277,8 @@ pub enum CellFormat {
 }
 
 fn custom_or_default(fmt: &str, default: CellFormat) -> CellFormat {
-    if let Ok(formats) = parse_custom_format(fmt) {
-        return CellFormat::Custom(CustomFormat { formats });
+    if let Ok(custom_format) = parse_custom_format(fmt) {
+        return CellFormat::Custom(custom_format);
     }
 
     default
@@ -433,18 +446,15 @@ pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) 
     format_excel_f64_ref(value, format, is_1904).into()
 }
 
-// pub fn format_excell_str_ref(value: &str, format: Option<&CellFormat>) -> DataTypeRef<'static> {
-//     if let Some(format) = format {
-//         match format {
-//             CellFormat::Other => todo!(),
-//             CellFormat::DateTime => todo!(),
-//             CellFormat::TimeDelta => todo!(),
-//             CellFormat::Custom(_) => todo!(), // FIXME
-//         }
-//     }
-
-//     todo!()
-// }
+pub fn format_excell_str_ref(value: &str, format: &CellFormat) -> DataTypeRef<'static> {
+    match format {
+        CellFormat::Other => DataTypeRef::String(String::from(value)),
+        CellFormat::DateTime => DataTypeRef::String(String::from("")),
+        CellFormat::TimeDelta => DataTypeRef::String(String::from("")),
+        CellFormat::General => DataTypeRef::String(String::from(value)),
+        CellFormat::Custom(custom_format) => format_custom_format_str(value, custom_format),
+    }
+}
 
 /// Ported from openpyxl, MIT License
 /// https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a5e197c530aaa49814fd1d993dd776edcec35105/openpyxl/styles/tests/test_number_style.py
@@ -671,6 +681,7 @@ fn test_is_date_format() {
     assert_eq!(
         detect_custom_number_format("[>=100][Magenta].00"),
         CellFormat::Custom(CustomFormat {
+            negative_format: None,
             formats: vec![Some(FormatPart {
                 prefix: Some(Fix { fix_string: None }),
                 // suffix: Some(Fix { fix_string: None }),
@@ -697,6 +708,7 @@ fn test_is_date_format() {
     assert_eq!(
         detect_custom_number_format("[>=100][Magenta]General"),
         CellFormat::Custom(CustomFormat {
+            negative_format: None,
             formats: vec![Some(FormatPart {
                 prefix: Some(Fix { fix_string: None },),
                 // suffix: Some(Fix { fix_string: None },),
@@ -753,7 +765,7 @@ fn test_is_date_format() {
 #[cfg(test)]
 mod test {
     use crate::{
-        custom_format::format_with_fformat,
+        custom_format::{format_with_fformat, parse_custom_format},
         datatype::DataTypeRef,
         formats::{detect_custom_number_format, format_excel_f64_ref, FFormat},
     };

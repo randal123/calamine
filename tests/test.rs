@@ -177,6 +177,46 @@ fn issue_number_formats() {
 }
 
 #[test]
+fn issue_conditions() {
+    setup();
+
+    let path = format!(
+        "{}/tests/issues_conditions.xlsx",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut excel: Xlsx<_> = open_workbook(&path).unwrap();
+
+    let range = excel.worksheet_range("Sheet1").unwrap().0;
+    range_eq!(
+        range,
+        [
+            [String("bla".to_string())],
+	    [String("bb".to_string())],
+	    [String("1.3".to_string())],
+	    [String("01".to_string())],
+	    [String("0.000".to_string())],
+	    [String("123".to_string())],
+	    [String("-1".to_string())],
+	    [String("0.000".to_string())],
+	    [String("-1.000".to_string())],
+	    [String("-1.00".to_string())],
+	    [String("4.00".to_string())],
+	    [String("-1.0".to_string())],
+	    [String("0.00".to_string())],
+	    [String("-1.000".to_string())],
+	    [String("0.000".to_string())],
+	    [String("0.000".to_string())],
+	    [String("-1.000".to_string())],
+	    [String("-1.0".to_string())],
+	    [String("1".to_string())],
+	    // [String("0.1234561234454245453342342431".to_string())],
+	    [String("".to_string())],
+        ]
+    );
+}
+
+
+#[test]
 fn issue_bad_date_formats() {
     setup();
 

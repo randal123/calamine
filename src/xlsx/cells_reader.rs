@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     datatype::DataTypeRef,
-    formats::{format_excel_f64_ref, CellFormat},
+    formats::{format_excel_f64_ref, CellFormat, format_excell_str_ref},
     Cell, XlsxError,
 };
 
@@ -428,7 +428,7 @@ fn read_v<'s>(
 ) -> Result<DataTypeRef<'s>, XlsxError> {
     let cell_format = match get_attribute(c_element.attributes(), QName(b"s")) {
         Ok(Some(style)) => {
-            let id: usize = std::str::from_utf8(style).unwrap_or("0").parse()?;
+            let id: usize = std::str::from_utf8(style).unwrap_or("General").parse()?;
             formats.get(id)
         }
         _ => Some(&CellFormat::Other),
@@ -437,7 +437,12 @@ fn read_v<'s>(
         Some(b"s") => {
             // shared string
             let idx: usize = v.parse()?;
-            Ok(DataTypeRef::SharedString(&strings[idx]))
+	    let s = &strings[idx];
+	    if let Some(cell_format) = cell_format {
+		Ok(format_excell_str_ref(&s, cell_format))
+	    } else {
+		Ok(DataTypeRef::SharedString(&s))
+	    }
         }
         Some(b"b") => {
             // boolean
