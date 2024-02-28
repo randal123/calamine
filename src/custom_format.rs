@@ -850,11 +850,84 @@ pub(crate) fn format_with_fformat(
     fformat: &FFormat,
     locale: Option<usize>,
 ) -> String {
-    // FIXME, dp limit ??
-    fn excell_round(value: f64, dp: i32) -> String {
-        let v = 10f64.powi(dp);
-        let value = (value * v).round() / v;
+    fn excell_round(mut value: f64, dp: i32) -> String {
+        if value.fract() > 0.0 {
+            let v = 10f64.powi(dp);
+            value = (value * v).round() / v;
+        }
+
         format!("{:.*}", dp as usize, value)
+    }
+    #[allow(dead_code)]
+    fn dummy_round(value: f64, dp: usize) -> String {
+        let mut sv = value.to_string();
+        if value.fract() > 0.0 {
+            let dot = sv.chars().position(|c| c.eq(&'.')).unwrap();
+            let dec = sv.len() - dot - 1;
+            if dp == dec {
+                return sv;
+            }
+            let mut svb = sv.into_bytes();
+            if dp > dec {
+                for _ in 0..(dp - dec) {
+                    svb.push(b'0');
+                }
+                String::from_utf8(svb).unwrap()
+            } else {
+                let mut extra = 0;
+                let end = svb.len();
+                let mut start = end - (dec - dp);
+
+                for index in (start..end).rev() {
+                    let v = svb[index] as char;
+
+                    let v = v.to_digit(10).unwrap() + extra;
+                    if v >= 5 {
+                        extra = 1;
+                    } else {
+                        extra = 0;
+                    }
+                }
+
+                if extra > 0 {
+                    for index in (0..start).rev() {
+                        let v = svb[index] as char;
+                        if v.eq(&'.') {
+                            continue;
+                        }
+                        let mut d = v.to_digit(10).unwrap() + extra;
+
+                        if d < 10 {
+                            svb[index] = char::from_digit(d, 10).unwrap() as u8;
+                            extra = 0;
+                            break;
+                        }
+
+                        d = d % 10;
+                        extra = 1;
+                        svb[index] = char::from_digit(d, 10).unwrap() as u8;
+                    }
+                }
+
+                if dp == 0 {
+                    start -= 1;
+                }
+                if extra > 0 {
+                    svb.reverse();
+                    svb.push(b'1');
+                    svb.reverse();
+                    String::from_utf8(svb.drain(0..=start).collect()).unwrap()
+                } else {
+                    String::from_utf8(svb.drain(0..start).collect()).unwrap()
+                }
+            }
+        } else {
+            if dp > 0 {
+                sv.push('.');
+                sv.extend(std::iter::repeat('0').take(dp as usize));
+            }
+            sv
+        }
     }
 
     if fformat.ff_type == NumFormatType::Percentage {
