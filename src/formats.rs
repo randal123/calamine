@@ -1,9 +1,7 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
-    custom_format::{
-        self, format_custom_format_f64, format_custom_format_str, parse_custom_format,
-    },
+    custom_format::{format_custom_format_f64, format_custom_format_str, parse_custom_format},
     datatype::DataTypeRef,
     DataType,
 };
@@ -765,7 +763,7 @@ fn test_is_date_format() {
 #[cfg(test)]
 mod test {
     use crate::{
-        custom_format::{format_with_fformat, parse_custom_format},
+        custom_format::format_with_fformat,
         datatype::DataTypeRef,
         formats::{detect_custom_number_format, format_excel_f64_ref, FFormat},
     };
