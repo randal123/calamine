@@ -560,25 +560,6 @@ fn decode_date_time_format(
     Ok(ReadResult::new(format, index))
 }
 
-#[allow(dead_code)]
-fn make_default_condition(index: usize, count: usize) -> Option<Condition> {
-    match index {
-        0 => match count {
-            1 => None,
-            2 => Some(Condition::new(ConditionOp::Ge, Some(0.0), None)),
-            3 | 4 => Some(Condition::new(ConditionOp::Gt, Some(0.0), None)),
-            _ => None,
-        },
-        1 => match count {
-            2 | 3 | 4 => Some(Condition::new(ConditionOp::Lt, Some(0.0), None)),
-            _ => None,
-        },
-        2 => Some(Condition::new(ConditionOp::Eq, Some(0.0), None)),
-        3 => None, //FIXME, should we signal text here ?
-        _ => panic!("To many format parts"),
-    }
-}
-
 fn get_format_parts(fmt: &[char]) -> Vec<(usize, usize)> {
     let mut commas: Vec<usize> = Vec::new();
     commas.push(0);
@@ -653,7 +634,7 @@ fn parse_value_format(
     return Err(anyhow!("Unknown fmt: {}", fmt.iter().collect::<String>()));
 }
 
-pub(crate) fn calculate_negative_format(formats: &[Option<FormatPart>]) -> Option<usize> {
+fn calculate_negative_format(formats: &[Option<FormatPart>]) -> Option<usize> {
     fn only_sign(f: Option<&FormatPart>, fun: impl Fn(&Condition) -> bool, dflt: bool) -> bool {
         f.map_or(dflt, |fp| fp.condition.as_ref().map_or(dflt, |c| fun(c)))
     }
@@ -693,7 +674,6 @@ pub(crate) fn calculate_negative_format(formats: &[Option<FormatPart>]) -> Optio
     None
 }
 
-#[allow(dead_code)]
 pub fn parse_custom_format(format: &str) -> anyhow::Result<CustomFormat> {
     let fmt: Vec<char> = format.chars().collect();
     let pairs = get_format_parts(&fmt);
@@ -884,6 +864,7 @@ pub(crate) fn format_with_fformat(
     let locale_data = locale.map_or(None, |i| get_time_locale(i));
 
     // we are using en_US as default locale if not specified
+    // FIXME, implement  user supplied locale through API for this
     let decimal_point = locale_data.map_or(".", |ld| ld.num_decimal_point);
     let thousand_separator = locale_data.map_or(",", |ld| ld.num_thousands_sep);
 
@@ -912,8 +893,8 @@ pub(crate) fn format_with_fformat(
         return str_value;
     }
 
-    let chars_value: Vec<char> = str_value.chars().collect();
-    let dot_position = chars_value.iter().position(|x| (*x).eq(&'.'));
+    let chars_value = str_value.as_bytes(); // we now that it's ASCII only
+    let dot_position = chars_value.iter().position(|x| (*x).eq(&b'.'));
 
     let mut value_decimal_places: i32 = if let Some(dot_position) = dot_position {
         (chars_value.len() - dot_position - 1) as i32
@@ -921,7 +902,7 @@ pub(crate) fn format_with_fformat(
         0
     };
 
-    let mut new_str_value: VecDeque<char> = VecDeque::new();
+    let mut new_str_value: VecDeque<u8> = VecDeque::new();
 
     let mut dot = false;
     let mut last_group = 0;
@@ -934,29 +915,31 @@ pub(crate) fn format_with_fformat(
 
     for (_, ch) in chars_value.iter().rev().enumerate() {
         match (*ch, dot) {
-            ('0', false) => {
+            (b'0', false) => {
                 if value_decimal_places <= iz {
                     new_str_value.push_front(*ch);
                 }
             }
-            ('.', false) => {
+            (b'.', false) => {
                 // replacing it with localized dec seprator
-                for c in decimal_point.chars() {
-                    new_str_value.push_front(c);
+                for c in decimal_point.as_bytes() {
+                    new_str_value.push_front(*c);
                 }
                 dot = true;
             }
             (c, false) => {
                 new_str_value.push_front(c);
             }
-            ('-', true) => {
-                new_str_value.push_front('-');
+            (b'-', true) => {
+                new_str_value.push_front(b'-');
             }
             (c, true) => {
                 if grouping_count > 0 {
                     if last_group == grouping_count {
-                        for c in thousand_separator.chars() {
-                            new_str_value.push_front(c);
+                        // we now that decimal point and thousand separator can be only ASCII
+                        for c in thousand_separator.as_bytes() {
+                            // FIXME, use reverse
+                            new_str_value.push_front(*c);
                         }
                         last_group = 0;
                     }
@@ -975,7 +958,7 @@ pub(crate) fn format_with_fformat(
     if dot {
         if nums < (fformat.p_iz) {
             for _ in 0..(fformat.p_iz - nums) {
-                new_str_value.push_front('0');
+                new_str_value.push_front(b'0');
             }
         }
     } else {
@@ -983,16 +966,15 @@ pub(crate) fn format_with_fformat(
         let vl: i32 = chars_value.len() as i32;
         if vl < (fformat.p_sd) {
             for _ in 0..(fformat.p_iz - vl) {
-                new_str_value.push_front('0');
+                new_str_value.push_front(b'0');
             }
         }
     }
 
     if fformat.ff_type == NumFormatType::Percentage {
-        new_str_value.push_back('%');
+        new_str_value.push_back(b'%');
     }
-
-    new_str_value.iter().collect()
+    String::from_utf8(Into::<Vec<_>>::into(new_str_value)).unwrap_or(String::from(INVALID_VALUE))
 }
 
 fn format_num_format(
@@ -1033,6 +1015,10 @@ fn format_num_format(
         suffix
     };
 
+    if suffix.is_empty() && prefix.is_empty() {
+        return DataTypeRef::String(String::from_utf8(value.into()).unwrap());
+    }
+
     DataTypeRef::String(format!("{}{}{}", prefix, value, suffix))
 }
 
@@ -1059,6 +1045,10 @@ fn no_value_format(format: &FormatPart) -> DataTypeRef<'static> {
         suffix
     };
 
+    if suffix.is_empty() && prefix.is_empty() {
+        return DataTypeRef::String(String::from(""));
+    }
+
     DataTypeRef::String(format!("{}{}", prefix, suffix))
 }
 
@@ -1076,6 +1066,7 @@ pub fn format_part_format_str(value: &str, format_part: &FormatPart) -> DataType
     let text_value = if let Some(ValueFormat::Text) = format_part.value {
         value
     } else {
+        // TODO, implement
         ""
     };
 
