@@ -62,10 +62,10 @@ mod utils;
 
 mod auto;
 mod cfb;
-mod datatype;
-mod locales;
 mod custom_format;
+mod datatype;
 mod formats;
+mod locales;
 mod ods;
 mod xls;
 mod xlsb;
@@ -79,7 +79,7 @@ use datatype::DataTypeRef;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -165,7 +165,6 @@ impl MergeCell {
         self.col_last
     }
 }
-
 
 #[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub(crate) struct Dimensions {
@@ -296,7 +295,10 @@ where
 
     /// Get the nth worksheet. Shortcut for getting the nth
     /// sheet_name, then the corresponding worksheet.
-    fn worksheet_range_at(&mut self, n: usize) -> Option<Result<(Range<DataType>, SheetInfo), Self::Error>> {
+    fn worksheet_range_at(
+        &mut self,
+        n: usize,
+    ) -> Option<Result<(Range<DataType>, SheetInfo), Self::Error>> {
         let name = self.sheet_names().get(n)?.to_string();
         Some(self.worksheet_range(&name))
     }
@@ -382,12 +384,12 @@ pub struct SheetInfo {
 impl SheetInfo {
     /// return vector of merged cells
     pub fn merged_cells(&self) -> &[MergeCell] {
-	&self.merged_cells
+        &self.merged_cells
     }
 
     /// return hidden columns
     pub fn hidden_columns(&self) -> &HashSet<u32> {
-	&self.hidden_columns
+        &self.hidden_columns
     }
 }
 
@@ -502,6 +504,79 @@ impl<T: CellType> Range<T> {
             let cols = (col_end - col_start + 1) as usize;
             let rows = (row_end - row_start + 1) as usize;
             let len = cols.saturating_mul(rows);
+            let mut v = vec![T::default(); len];
+            v.shrink_to_fit();
+            for c in cells {
+                let row = (c.pos.0 - row_start) as usize;
+                let col = (c.pos.1 - col_start) as usize;
+                let idx = row.saturating_mul(cols) + col;
+                v.get_mut(idx).map(|v| *v = c.val);
+            }
+            Range {
+                start: (row_start, col_start),
+                end: (row_end, col_end),
+                inner: v,
+            }
+        }
+    }
+
+    /// same as above but uses row and column mapping to resize sheet
+    pub fn from_sparse_with_resize(
+        mut cells: Vec<Cell<T>>,
+        row_map: &HashMap<u32, u32>,
+        column_map: &HashMap<u32, u32>,
+    ) -> Range<T> {
+        if cells.is_empty() {
+            Range::empty()
+        } else {
+            // see how big matrix is
+            let max_row = row_map.keys().max();
+            let max_column = column_map.keys().max();
+            let matrix_len = if let (Some(mrow), Some(mcolumn)) = (max_row, max_column) {
+                (*mrow as usize) * (*mcolumn as usize)
+            } else {
+                0
+            };
+
+            // how big matrix is with resizing
+            let resized_max_row = row_map.values().max();
+            let resized_max_column = column_map.values().max();
+            let matrix_resized_len =
+                if let (Some(mrow), Some(mcolumn)) = (resized_max_row, resized_max_column) {
+                    (*mrow as usize) * (*mcolumn as usize)
+                } else {
+                    0
+                };
+            let resize = matrix_len > 10_000_00 && matrix_resized_len < matrix_len;
+
+            // search bounds
+
+            let mut col_start = std::u32::MAX;
+            let mut col_end = 0;
+            for cell in cells.iter_mut() {
+                if resize {
+                    if let Some(nr) = row_map.get(&cell.pos.0) {
+                        cell.pos.0 = *nr;
+                    }
+                    if let Some(nc) = column_map.get(&cell.pos.1) {
+                        cell.pos.1 = *nc;
+                    }
+                }
+
+                let c = cell.pos.1;
+
+                if c < col_start {
+                    col_start = c;
+                }
+                if c > col_end {
+                    col_end = c
+                }
+            }
+	    let row_start = cells.first().unwrap().pos.0;
+            let row_end = cells.last().unwrap().pos.0;
+            let cols = (col_end - col_start + 1) as usize;
+            let rows = (row_end - row_start + 1) as usize;
+	    let len = cols.saturating_mul(rows);
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
             for c in cells {

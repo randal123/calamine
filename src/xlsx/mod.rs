@@ -1,7 +1,7 @@
 mod cells_reader;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
@@ -18,8 +18,8 @@ use crate::datatype::DataTypeRef;
 use crate::formats::{builtin_format_by_id, detect_custom_number_format, CellFormat};
 use crate::vba::VbaProject;
 use crate::{
-    Cell, CellErrorType, DataType, Dimensions, Metadata, Range, Reader, Sheet, SheetType,
-    SheetVisible, Table, MergeCell, SheetInfo
+    Cell, CellErrorType, DataType, Dimensions, MergeCell, Metadata, Range, Reader, Sheet,
+    SheetInfo, SheetType, SheetVisible, Table,
 };
 pub use cells_reader::XlsxCellReader;
 
@@ -719,6 +719,58 @@ impl InnerTableMetadata {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct SheetResizer {
+    index: u32,
+    original: u32,
+    diff: u32,
+    new_diff: u32,
+}
+
+impl SheetResizer {
+    fn new() -> Self {
+        Self {
+            index: 0,
+            original: 0,
+            diff: 5,
+            new_diff: 2,
+        }
+    }
+    fn reset(&mut self) {
+        self.index = 0;
+        self.original = 0;
+    }
+
+    fn calculate(&mut self, index: u32, mapping: Option<&mut HashMap<u32, u32>>) -> u32 {
+        if index == self.original {
+            self.index
+        } else {
+            if index > self.original + self.diff {
+                self.index += self.new_diff;
+                self.original = index;
+            } else {
+                self.index += index - self.original;
+                self.original = index;
+            }
+            mapping.map(|m| m.insert(index, self.index));
+            self.index
+        }
+    }
+
+    fn calculate_from_index_set(&mut self, indexes: &BTreeSet<u32>) -> HashMap<u32, u32> {
+        self.reset();
+        let mut mapping = HashMap::new();
+        for index in indexes.iter() {
+            let new = self.calculate(*index, None);
+            if new != *index {
+                mapping.insert(*index, new);
+            }
+        }
+
+        mapping
+    }
+}
+
 impl<RS: Read + Seek> Xlsx<RS> {
     /// Get a reader over all used cells in the given worksheet cell reader
     pub fn worksheet_cells_reader<'a>(
@@ -744,10 +796,13 @@ impl<RS: Read + Seek> Xlsx<RS> {
         name: &str,
     ) -> Result<(Range<DataTypeRef<'a>>, SheetInfo), XlsxError> {
         let mut cell_reader = self.worksheet_cells_reader(name)?;
-	let mut merged_cells = cell_reader.merged_cells.take();
-	let mut hidden_columns = cell_reader.hidden_columns.take();
+        let mut merged_cells = cell_reader.merged_cells.take();
+        let mut hidden_columns = cell_reader.hidden_columns.take();
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
+        let mut resizer = SheetResizer::new();
+        let mut row_mapping = HashMap::new();
+        let mut ocuppied_columns = BTreeSet::new();
         if len < 100_000 {
             cells.reserve(len as usize);
         }
@@ -757,28 +812,38 @@ impl<RS: Read + Seek> Xlsx<RS> {
                     val: DataTypeRef::Empty,
                     ..
                 })) => (),
-                Ok(Some(cell)) => cells.push(cell),
+                Ok(Some(cell)) => {
+                    resizer.calculate(cell.pos.0, Some(&mut row_mapping));
+                    ocuppied_columns.insert(cell.pos.1);
+                    cells.push(cell)
+                }
                 Ok(None) => {
-		    // read merged cells
-		    if merged_cells.is_none() || hidden_columns.is_none() {
-			if let Ok((mc, hc)) = cell_reader.read_merged_or_hidden() {
-			    if merged_cells.is_none() {
-				merged_cells = mc;
-			    }
-			    if hidden_columns.is_none() {
-				hidden_columns = hc;
-			    }
-			}
-		    }
-		    break;
-		},
+                    // read merged cells
+                    if merged_cells.is_none() || hidden_columns.is_none() {
+                        if let Ok((mc, hc)) = cell_reader.read_merged_or_hidden() {
+                            if merged_cells.is_none() {
+                                merged_cells = mc;
+                            }
+                            if hidden_columns.is_none() {
+                                hidden_columns = hc;
+                            }
+                        }
+                    }
+                    break;
+                }
                 Err(e) => return Err(e),
             }
         }
 
-        Ok((Range::from_sparse(cells), SheetInfo {merged_cells: merged_cells.unwrap_or_else(|| Vec::default()),
-						  hidden_columns: hidden_columns.unwrap_or_else(|| HashSet::default())
-	}))
+        let column_mapping = resizer.calculate_from_index_set(&ocuppied_columns);
+
+        Ok((
+            Range::from_sparse_with_resize(cells, &row_mapping, &column_mapping),
+            SheetInfo {
+                merged_cells: merged_cells.unwrap_or_else(|| Vec::default()),
+                hidden_columns: hidden_columns.unwrap_or_else(|| HashSet::default()),
+            },
+        ))
     }
 }
 
@@ -824,14 +889,16 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
     }
 
     fn worksheet_range(&mut self, name: &str) -> Result<(Range<DataType>, SheetInfo), XlsxError> {
-	let (rge, sheet_info) = self.worksheet_range_ref(name)?;
+        let (rge, sheet_info) = self.worksheet_range_ref(name)?;
         let inner = rge.inner.into_iter().map(|v| v.into()).collect();
-        Ok((Range {
-            start: rge.start,
-            end: rge.end,
-            inner,
-        },
-	sheet_info))
+        Ok((
+            Range {
+                start: rge.start,
+                end: rge.end,
+                inner,
+            },
+            sheet_info,
+        ))
     }
 
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsxError> {
@@ -864,7 +931,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             .collect()
     }
 
-     #[cfg(feature = "picture")]
+    #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         self.pictures.to_owned()
     }
