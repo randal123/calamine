@@ -170,8 +170,8 @@ fn issue_number_formats() {
             // [String("£$ 9988.00".to_string())],
 	    [String("12345678987654300.00000 RSD".to_string())],
 	    // FIXME, not quite right
-	    // [String("184467440737095000000000".to_string())], // FIXME, excell_round() fix
-	    [String("184467440737095012843520".to_string())],
+	    [String("184467440737095000000000".to_string())], // FIXME, excell_round() fix
+	    // [String("184467440737095012843520".to_string())],
 	    [String("1234.00%".to_string())],
         ]
     );
@@ -215,10 +215,10 @@ fn issue_conditions() {
 	    [String("10/3/54".to_string())],
 	    [String("1.0".to_string())],
 	    [String("0.00".to_string())],
-	    // [String("2305843009213690000.0".to_string())], // FIXME, excell_round() fix
-	    [String("2305843009213690112.0".to_string())],
-	    // [String("2305843009213690000.000000000000000000000000000000".to_string())], // FIXME, excell_round() fix
-	    [String("2305843009213690112.000000000000000000000000000000".to_string())],
+	    [String("2305843009213690000.0".to_string())], // FIXME, excell_round() fix
+	    // [String("2305843009213690112.0".to_string())],
+	    [String("2305843009213690000.000000000000000000000000000000".to_string())], // FIXME, excell_round() fix
+	    // [String("2305843009213690112.000000000000000000000000000000".to_string())],
 	    [String("2.00".to_string())],
         ]
     );

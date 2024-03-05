@@ -850,19 +850,30 @@ pub(crate) fn format_with_fformat(
     fformat: &FFormat,
     locale: Option<usize>,
 ) -> String {
-    fn excell_round(mut value: f64, dp: i32) -> String {
+    #[allow(dead_code)]
+    fn excel_round(mut value: f64, dp: i32) -> String {
         if value.fract() > 0.0 {
             let v = 10f64.powi(dp);
             value = (value * v).round() / v;
+            format!("{:.*}", dp as usize, value)
+        } else {
+            let mut vs = value.to_string().into_bytes();
+            if dp > 0 {
+		vs.push(b'.');
+                for _ in 0..(dp as usize) {
+                    vs.push(b'0');
+                }
+            }
+            String::from_utf8(vs).unwrap_or(value.to_string())
         }
-
-        format!("{:.*}", dp as usize, value)
     }
     #[allow(dead_code)]
     fn dummy_round(value: f64, dp: usize) -> String {
         let mut sv = value.to_string();
         if value.fract() > 0.0 {
-            let dot = sv.chars().position(|c| c.eq(&'.')).unwrap();
+            let Some(dot) = sv.chars().position(|c| c.eq(&'.')) else {
+                return value.to_string();
+            };
             let dec = sv.len() - dot - 1;
             if dp == dec {
                 return sv;
@@ -872,39 +883,46 @@ pub(crate) fn format_with_fformat(
                 for _ in 0..(dp - dec) {
                     svb.push(b'0');
                 }
-                String::from_utf8(svb).unwrap()
+                String::from_utf8(svb).unwrap_or(value.to_string())
             } else {
-                let mut extra = 0;
+                let mut carry = 0;
                 let end = svb.len();
                 let mut start = end - (dec - dp);
 
                 for index in (start..end).rev() {
                     let v = svb[index] as char;
 
-                    let v = v.to_digit(10).unwrap() + extra;
+                    let Some(v) = v.to_digit(10) else {
+                        return value.to_string();
+                    };
+
                     if v >= 5 {
-                        extra = 1;
+                        carry = 1;
                     } else {
-                        extra = 0;
+                        carry = 0;
                     }
                 }
 
-                if extra > 0 {
+                if carry > 0 {
                     for index in (0..start).rev() {
                         let v = svb[index] as char;
                         if v.eq(&'.') {
                             continue;
                         }
-                        let mut d = v.to_digit(10).unwrap() + extra;
+
+                        let Some(mut d) = v.to_digit(10) else {
+                            return value.to_string();
+                        };
+                        d += carry;
 
                         if d < 10 {
                             svb[index] = char::from_digit(d, 10).unwrap() as u8;
-                            extra = 0;
+                            carry = 0;
                             break;
                         }
 
                         d = d % 10;
-                        extra = 1;
+                        carry = 1;
                         svb[index] = char::from_digit(d, 10).unwrap() as u8;
                     }
                 }
@@ -912,13 +930,13 @@ pub(crate) fn format_with_fformat(
                 if dp == 0 {
                     start -= 1;
                 }
-                if extra > 0 {
+                if carry > 0 {
                     svb.reverse();
                     svb.push(b'1');
                     svb.reverse();
-                    String::from_utf8(svb.drain(0..=start).collect()).unwrap()
+                    String::from_utf8(svb.drain(0..=start).collect()).unwrap_or(value.to_string())
                 } else {
-                    String::from_utf8(svb.drain(0..start).collect()).unwrap()
+                    String::from_utf8(svb.drain(0..start).collect()).unwrap_or(value.to_string())
                 }
             }
         } else {
@@ -947,7 +965,8 @@ pub(crate) fn format_with_fformat(
     let iz = fformat.iz;
     let grouping_count = fformat.group_separator_count;
 
-    let mut str_value = excell_round(value, dec_places as i32);
+    let mut str_value = excel_round(value, dec_places as i32);
+    // let mut str_value = dummy_round(value, dec_places as usize);
 
     if grouping_count == 0 && sd == 0 {
         if fformat.ff_type == NumFormatType::Percentage {
