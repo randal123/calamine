@@ -79,10 +79,12 @@ use datatype::DataTypeRef;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
+use std::collections::btree_map::Iter;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
+use std::iter::Peekable;
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 
@@ -393,6 +395,50 @@ impl SheetInfo {
     }
 }
 
+struct ResizeResolver<'b> {
+    mapping: &'b BTreeMap<u32, u32>,
+    it: Peekable<Iter<'b, u32, u32>>,
+    active: Option<(u32, u32)>,
+}
+
+impl<'b> ResizeResolver<'b> {
+    fn new(mapping: &'b BTreeMap<u32, u32>) -> Self {
+        Self {
+            mapping,
+            active: None,
+            it: mapping.iter().peekable(),
+        }
+    }
+
+    fn resolve(&mut self, index: u32) -> u32 {
+        // this can only happen for rows
+        if let Some((ik, _)) = self.active {
+            if index < ik {
+                self.active = None;
+                self.it = self.mapping.iter().peekable();
+            }
+        }
+
+        loop {
+            if let Some((rk, rv)) = self.it.next_if(|(a, _)| **a <= index) {
+                self.active = Some((*rk, *rv));
+            } else {
+                break;
+            }
+        }
+
+        if let Some((ik, iv)) = self.active {
+            if ik == index {
+                iv
+            } else {
+                (index - ik) + iv
+            }
+        } else {
+            index
+        }
+    }
+}
+
 impl<T: CellType> Range<T> {
     /// Creates a new non-empty `Range`
     ///
@@ -523,8 +569,8 @@ impl<T: CellType> Range<T> {
     /// same as above but uses row and column mapping to resize sheet
     pub fn from_sparse_with_resize(
         mut cells: Vec<Cell<T>>,
-        row_map: &HashMap<u32, u32>,
-        column_map: &HashMap<u32, u32>,
+        row_map: &BTreeMap<u32, u32>,
+        column_map: &BTreeMap<u32, u32>,
     ) -> Range<T> {
         if cells.is_empty() {
             Range::empty()
@@ -547,22 +593,20 @@ impl<T: CellType> Range<T> {
                 } else {
                     0
                 };
+            // 10 mil ~ 300MB
             let resize = matrix_len > 10_000_00 && matrix_resized_len < matrix_len;
 
             // search bounds
 
             let mut col_start = std::u32::MAX;
             let mut col_end = 0;
+            let mut row_resolver = ResizeResolver::new(row_map);
+            let mut col_resolver = ResizeResolver::new(column_map);
             for cell in cells.iter_mut() {
                 if resize {
-                    if let Some(nr) = row_map.get(&cell.pos.0) {
-                        cell.pos.0 = *nr;
-                    }
-                    if let Some(nc) = column_map.get(&cell.pos.1) {
-                        cell.pos.1 = *nc;
-                    }
+                    cell.pos.0 = row_resolver.resolve(cell.pos.0);
+                    cell.pos.1 = col_resolver.resolve(cell.pos.1);
                 }
-
                 let c = cell.pos.1;
 
                 if c < col_start {
@@ -572,11 +616,11 @@ impl<T: CellType> Range<T> {
                     col_end = c
                 }
             }
-	    let row_start = cells.first().unwrap().pos.0;
+            let row_start = cells.first().unwrap().pos.0;
             let row_end = cells.last().unwrap().pos.0;
             let cols = (col_end - col_start + 1) as usize;
             let rows = (row_end - row_start + 1) as usize;
-	    let len = cols.saturating_mul(rows);
+            let len = cols.saturating_mul(rows);
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
             for c in cells {

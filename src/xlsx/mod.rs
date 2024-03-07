@@ -1,7 +1,7 @@
 mod cells_reader;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
@@ -732,8 +732,17 @@ impl SheetResizer {
         Self {
             index: 0,
             original: 0,
-            diff: 5,
-            new_diff: 2,
+            diff: 10,
+            new_diff: 3,
+        }
+    }
+    #[allow(dead_code)]
+    fn new_with_diff(diff: u32, new_diff: u32) -> Self {
+        Self {
+            index: 0,
+            original: 0,
+            diff,
+            new_diff,
         }
     }
     fn reset(&mut self) {
@@ -741,32 +750,28 @@ impl SheetResizer {
         self.original = 0;
     }
 
-    fn calculate(&mut self, index: u32, mapping: Option<&mut HashMap<u32, u32>>) -> u32 {
+    fn calculate(&mut self, index: u32, mapping: Option<&mut BTreeMap<u32, u32>>) -> u32 {
         if index == self.original {
             self.index
         } else {
             if index > self.original + self.diff {
                 self.index += self.new_diff;
                 self.original = index;
+                mapping.map(|m| m.insert(index, self.index));
             } else {
                 self.index += index - self.original;
                 self.original = index;
             }
-            mapping.map(|m| m.insert(index, self.index));
             self.index
         }
     }
 
-    fn calculate_from_index_set(&mut self, indexes: &BTreeSet<u32>) -> HashMap<u32, u32> {
+    fn calculate_from_index_set(&mut self, indexes: &BTreeSet<u32>) -> BTreeMap<u32, u32> {
         self.reset();
-        let mut mapping = HashMap::new();
+        let mut mapping = BTreeMap::new();
         for index in indexes.iter() {
-            let new = self.calculate(*index, None);
-            if new != *index {
-                mapping.insert(*index, new);
-            }
+            self.calculate(*index, Some(&mut mapping));
         }
-
         mapping
     }
 }
@@ -801,7 +806,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let len = cell_reader.dimensions().len();
         let mut cells = Vec::new();
         let mut resizer = SheetResizer::new();
-        let mut row_mapping = HashMap::new();
+        let mut row_mapping = BTreeMap::new();
         let mut ocuppied_columns = BTreeSet::new();
         if len < 100_000 {
             cells.reserve(len as usize);
@@ -836,6 +841,7 @@ impl<RS: Read + Seek> Xlsx<RS> {
         }
 
         let column_mapping = resizer.calculate_from_index_set(&ocuppied_columns);
+        // FIXME, check if merged cells or hidden columns overlap with resized rows/columns
 
         Ok((
             Range::from_sparse_with_resize(cells, &row_mapping, &column_mapping),
@@ -1195,5 +1201,40 @@ mod tests {
             CellErrorType::from_str("#VALUE!").unwrap(),
             CellErrorType::Value
         );
+    }
+
+    #[test]
+    fn resize_test_rows() {
+        let mut resizer = SheetResizer::new_with_diff(1000, 10);
+        let mut mapping = BTreeMap::new();
+        resizer.calculate(0, Some(&mut mapping));
+        resizer.calculate(1, Some(&mut mapping));
+        resizer.calculate(500, Some(&mut mapping));
+        resizer.calculate(501, Some(&mut mapping));
+        resizer.calculate(1502, Some(&mut mapping));
+        resizer.calculate(1600, Some(&mut mapping));
+        resizer.calculate(2601, Some(&mut mapping));
+        resizer.calculate(2620, Some(&mut mapping));
+        assert_eq!(2, mapping.len());
+        assert_eq!(511, *mapping.get(&1502).unwrap());
+        assert_eq!(619, *mapping.get(&2601).unwrap());
+    }
+
+    #[test]
+    fn resize_test_columns() {
+        let mut resizer = SheetResizer::new_with_diff(1000, 10);
+        let mut cols = BTreeSet::new();
+        cols.insert(0);
+        cols.insert(1);
+        cols.insert(500);
+        cols.insert(501);
+        cols.insert(1502);
+        cols.insert(1600);
+        cols.insert(2601);
+        cols.insert(2620);
+        let mapping = resizer.calculate_from_index_set(&cols);
+        assert_eq!(2, mapping.len());
+        assert_eq!(511, *mapping.get(&1502).unwrap());
+        assert_eq!(619, *mapping.get(&2601).unwrap());
     }
 }
