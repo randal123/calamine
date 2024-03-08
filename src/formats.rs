@@ -384,6 +384,9 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
 /// See `is_builtin_date_format_id`
 // FIXME
 pub fn builtin_format_by_code(code: u16) -> CellFormat {
+    if let Some(format) = get_built_in_format(code as usize) {
+	return format;
+    }
     match code {
         14..=22 | 45 | 47 => CellFormat::DateTime,
         46 => CellFormat::TimeDelta,
@@ -447,8 +450,8 @@ pub fn format_excel_f64(value: f64, format: Option<&CellFormat>, is_1904: bool) 
 pub fn format_excell_str_ref(value: &str, format: &CellFormat) -> DataTypeRef<'static> {
     match format {
         CellFormat::Other => DataTypeRef::String(String::from(value)),
-        CellFormat::DateTime => DataTypeRef::String(String::from("")),
-        CellFormat::TimeDelta => DataTypeRef::String(String::from("")),
+        CellFormat::DateTime => DataTypeRef::String(String::from(value)),
+        CellFormat::TimeDelta => DataTypeRef::String(String::from(value)),
         CellFormat::General => DataTypeRef::String(String::from(value)),
         CellFormat::Custom(custom_format) => format_custom_format_str(value, custom_format),
     }

@@ -1159,7 +1159,7 @@ pub fn format_part_format_str(value: &str, format_part: &FormatPart) -> DataType
         value
     } else {
         // TODO, implement
-        ""
+	""
     };
 
     DataTypeRef::String(format!("{}{}{}", prefix, text_value, suffix))
@@ -1194,11 +1194,11 @@ pub fn format_custom_format_str(value: &str, custom_format: &CustomFormat) -> Da
         if let Some(format_part) = value_format {
             format_part_format_str(value, format_part)
         } else {
-            DataTypeRef::String(String::from(""))
+            DataTypeRef::String(String::from(value))
         }
     } else {
         // FIXME, maybe ######
-        DataTypeRef::String(String::from(""))
+        DataTypeRef::String(String::from(value))
     }
 }
 

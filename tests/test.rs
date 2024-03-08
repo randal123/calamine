@@ -211,7 +211,7 @@ fn issue_conditions() {
 	    [String("-1.0".to_string())],
 	    [String("1".to_string())],
 	    // [String("0.1234561234454245453342342431".to_string())],
-	    [String("".to_string())],
+	    [String("0.1234561234454245453342342431".to_string())],
 	    [String("10/3/54".to_string())],
 	    [String("1.0".to_string())],
 	    [String("0.00".to_string())],
@@ -272,6 +272,7 @@ fn issue_date_formats() {
 	    [String("2,341,234.00 RSD".to_string())],
 	    [String("XOF 2,341,234.00".to_string())],
 	    [String("2,341,234.00 F CFA".to_string())],
+	    [String("2/28/2024".to_string())],
         ]
     );
 }
@@ -893,7 +894,7 @@ fn mul_rk() {
     );
     let mut xls: Xls<_> = open_workbook(&path).unwrap();
     let range = xls.worksheet_range("Boys").unwrap().0;
-    assert_eq!(range.get_value((6, 2)), Some(&Float(9.)));
+    assert_eq!(range.get_value((6, 2)), Some(&String("9".to_string())));
 }
 
 #[test]

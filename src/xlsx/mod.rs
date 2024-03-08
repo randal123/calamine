@@ -732,8 +732,8 @@ impl SheetResizer {
         Self {
             index: 0,
             original: 0,
-            diff: 10,
-            new_diff: 3,
+            diff: 1000,
+            new_diff: 5,
         }
     }
     #[allow(dead_code)]
