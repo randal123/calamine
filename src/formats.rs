@@ -275,7 +275,7 @@ pub enum CellFormat {
 }
 
 fn custom_or_default(fmt: &str, default: CellFormat) -> CellFormat {
-    if let Ok(custom_format) = parse_custom_format(fmt) {
+    if let Ok(Ok(custom_format)) = std::panic::catch_unwind(|| parse_custom_format(fmt)) {
         return CellFormat::Custom(custom_format);
     }
 
@@ -385,7 +385,7 @@ pub fn builtin_format_by_id(id: &[u8]) -> CellFormat {
 // FIXME
 pub fn builtin_format_by_code(code: u16) -> CellFormat {
     if let Some(format) = get_built_in_format(code as usize) {
-	return format;
+        return format;
     }
     match code {
         14..=22 | 45 | 47 => CellFormat::DateTime,

@@ -99,6 +99,10 @@ pub use crate::xlsx::{Xlsx, XlsxError};
 
 use crate::vba::VbaProject;
 
+/// Maximum size for Spreadsheet Vector,
+/// ~ 2GB just for Vec<Cell> allocation
+pub const MAX_MATRIX_SIZE: usize = 70_000_000;
+
 // https://msdn.microsoft.com/en-us/library/office/ff839168.aspx
 /// An enum to represent all different errors that can appear as
 /// a value in a worksheet cell
@@ -550,6 +554,13 @@ impl<T: CellType> Range<T> {
             let cols = (col_end - col_start + 1) as usize;
             let rows = (row_end - row_start + 1) as usize;
             let len = cols.saturating_mul(rows);
+            if len > MAX_MATRIX_SIZE {
+                return Range {
+                    start: (0, 0),
+                    end: (0, 0),
+                    inner: vec![],
+                };
+            }
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
             for c in cells {
@@ -593,8 +604,9 @@ impl<T: CellType> Range<T> {
                 } else {
                     0
                 };
-            // 10 mil ~ 300MB
-            let resize = matrix_len > 10_000_00 && matrix_resized_len < matrix_len;
+
+	    // ~ 450MB just for Vec<Cell>
+            let resize = matrix_len > 15_000_000 && matrix_resized_len < matrix_len;
 
             // search bounds
 
@@ -621,6 +633,13 @@ impl<T: CellType> Range<T> {
             let cols = (col_end - col_start + 1) as usize;
             let rows = (row_end - row_start + 1) as usize;
             let len = cols.saturating_mul(rows);
+            if len > MAX_MATRIX_SIZE {
+                return Range {
+                    start: (0, 0),
+                    end: (0, 0),
+                    inner: vec![],
+                };
+            }
             let mut v = vec![T::default(); len];
             v.shrink_to_fit();
             for c in cells {

@@ -776,6 +776,45 @@ impl SheetResizer {
     }
 }
 
+fn merge_or_hidden_cells_overlap(
+    row_mapping: &BTreeMap<u32, u32>,
+    column_mapping: &BTreeMap<u32, u32>,
+    merged_cells: &Option<Vec<MergeCell>>,
+    hidden_columns: &Option<HashSet<u32>>,
+) -> bool {
+    let first_resized_row = row_mapping.values().nth(0);
+    let first_resized_column = column_mapping.values().nth(0);
+
+    if first_resized_row.is_none() && first_resized_column.is_none() {
+        return false;
+    }
+
+    match (
+        first_resized_column,
+        hidden_columns.as_ref().map(|hc| hc.iter().max()),
+    ) {
+        (Some(frc), Some(Some(hc))) => {
+            if hc >= frc {
+                return true;
+            }
+        }
+        _ => (),
+    }
+
+    let frr = *first_resized_row.unwrap_or(&u32::MAX);
+    let frc = *first_resized_column.unwrap_or(&u32::MAX);
+
+    if let Some(merged_cells) = merged_cells.as_ref() {
+        for mc in merged_cells {
+            if mc.rw_last >= frr || mc.col_last >= frc {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 impl<RS: Read + Seek> Xlsx<RS> {
     /// Get a reader over all used cells in the given worksheet cell reader
     pub fn worksheet_cells_reader<'a>(
@@ -843,13 +882,28 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let column_mapping = resizer.calculate_from_index_set(&ocuppied_columns);
         // FIXME, check if merged cells or hidden columns overlap with resized rows/columns
 
-        Ok((
-            Range::from_sparse_with_resize(cells, &row_mapping, &column_mapping),
-            SheetInfo {
-                merged_cells: merged_cells.unwrap_or_else(|| Vec::default()),
-                hidden_columns: hidden_columns.unwrap_or_else(|| HashSet::default()),
-            },
-        ))
+        if merge_or_hidden_cells_overlap(
+            &row_mapping,
+            &column_mapping,
+            &merged_cells,
+            &hidden_columns,
+        ) {
+            Ok((
+                Range::from_sparse(cells),
+                SheetInfo {
+                    merged_cells: merged_cells.unwrap_or_else(|| Vec::default()),
+                    hidden_columns: hidden_columns.unwrap_or_else(|| HashSet::default()),
+                },
+            ))
+        } else {
+            Ok((
+                Range::from_sparse_with_resize(cells, &row_mapping, &column_mapping),
+                SheetInfo {
+                    merged_cells: merged_cells.unwrap_or_else(|| Vec::default()),
+                    hidden_columns: hidden_columns.unwrap_or_else(|| HashSet::default()),
+                },
+            ))
+        }
     }
 }
 
