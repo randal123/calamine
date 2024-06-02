@@ -561,8 +561,7 @@ fn decode_date_time_format(
 }
 
 fn get_format_parts(fmt: &[char]) -> Vec<(usize, usize)> {
-    let mut commas: Vec<usize> = Vec::new();
-    commas.push(0);
+    let mut semicolons: Vec<usize> = vec![0];
     let mut escaped = false;
     let mut in_quotes = false;
     let mut in_brackets = false;
@@ -575,15 +574,15 @@ fn get_format_parts(fmt: &[char]) -> Vec<(usize, usize)> {
             ('"', false, true, false) => in_quotes = false,
             ('[', false, false, false) => in_brackets = true,
             (']', false, false, true) => in_brackets = false,
-            (';', false, false, false) => commas.push(index),
+            (';', false, false, false) => semicolons.push(index),
             _ => continue,
         }
     }
-    commas.push(fmt.len() - 1);
+    semicolons.push(fmt.len() - 1);
 
-    commas
+    semicolons
         .iter()
-        .zip(commas.iter().skip(1))
+        .zip(semicolons.iter().skip(1))
         .map(|(a, b)| (*a, *b))
         .collect::<Vec<_>>()
 }
@@ -852,14 +851,14 @@ pub(crate) fn format_with_fformat(
 ) -> String {
     #[allow(dead_code)]
     fn excel_round(mut value: f64, dp: i32) -> String {
-        if value.fract() > 0.0 {
+        if value.fract().abs() > 0.0 {
             let v = 10f64.powi(dp);
             value = (value * v).round() / v;
             format!("{:.*}", dp as usize, value)
         } else {
             let mut vs = value.to_string().into_bytes();
             if dp > 0 {
-		vs.push(b'.');
+                vs.push(b'.');
                 for _ in 0..(dp as usize) {
                     vs.push(b'0');
                 }
@@ -1159,7 +1158,7 @@ pub fn format_part_format_str(value: &str, format_part: &FormatPart) -> DataType
         value
     } else {
         // TODO, implement
-	""
+        ""
     };
 
     DataTypeRef::String(format!("{}{}{}", prefix, text_value, suffix))
@@ -1315,5 +1314,60 @@ pub fn format_custom_format_f64(
             return format_part_format_f64(value, fp_3, is_1904);
         }
         _ => return DataTypeRef::String(String::from(INVALID_VALUE)),
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use crate::{
+        custom_format::{format_custom_format_f64, parse_custom_format},
+        datatype::DataTypeRef,
+    };
+
+    fn test_f64(val: f64, fmt: &str, res: &str) {
+        let custom_format = match parse_custom_format(fmt) {
+            Ok(f) => f,
+            Err(err) => {
+                println!("{}", err.backtrace());
+                panic!("Can't make CustomFormat");
+            }
+        };
+        // let custom_format = parse_custom_format(fmt)?;
+        dbg!(&custom_format);
+        assert_eq!(
+            format_custom_format_f64(val, &custom_format, false),
+            DataTypeRef::String(res.to_owned())
+        )
+    }
+
+    #[test]
+    fn test_custom_format1() {
+        test_f64(1.1, "\"$\"#,##0.00_);[Red]\\(\"$\"#,##0.00\\)", "$1.10");
+    }
+
+    #[test]
+    fn test_custom_format2() {
+        test_f64(12.35, "0.00", "12.35");
+    }
+
+    #[test]
+    fn test_custom_format3() {
+        test_f64(-12.345, "0.00", "-12.35");
+    }
+
+    #[test]
+    fn test_custom_format4() {
+        test_f64(0.0, "0.00", "0.00");
+    }
+
+    #[test]
+    fn test_custom_format5() {
+        test_f64(12.345, "0.00;-0.00", "12.35");
+    }
+
+    #[test]
+    fn test_custom_format6() {
+        test_f64(-12.345, "0.00;-0.00", "-12.35");
     }
 }
