@@ -1321,7 +1321,7 @@ pub fn format_custom_format_f64(
 mod test {
 
     use crate::{
-        custom_format::{format_custom_format_f64, parse_custom_format},
+        custom_format::{format_custom_format_f64, format_custom_format_str, parse_custom_format},
         datatype::DataTypeRef,
     };
 
@@ -1333,10 +1333,22 @@ mod test {
                 panic!("Can't make CustomFormat");
             }
         };
-        // let custom_format = parse_custom_format(fmt)?;
-        dbg!(&custom_format);
         assert_eq!(
             format_custom_format_f64(val, &custom_format, false),
+            DataTypeRef::String(res.to_owned())
+        )
+    }
+
+    fn test_str(val: &str, fmt: &str, res: &str) {
+        let custom_format = match parse_custom_format(fmt) {
+            Ok(f) => f,
+            Err(err) => {
+                println!("{}", err.backtrace());
+                panic!("Can't make CustomFormat");
+            }
+        };
+        assert_eq!(
+            format_custom_format_str(val, &custom_format),
             DataTypeRef::String(res.to_owned())
         )
     }
@@ -1368,6 +1380,61 @@ mod test {
 
     #[test]
     fn test_custom_format6() {
-        test_f64(-12.345, "0.00;-0.00", "-12.35");
+        test_f64(-12.345, "0.00;\\-0.00", "-12.35");
+    }
+
+    #[test]
+    fn test_custom_format7() {
+        test_f64(-12.345, "0.00;\\(0.00\\)", "(12.35)");
+    }
+
+    #[test]
+    fn test_custom_format8() {
+        test_f64(0.0, "0.00;\\-0.00", "0.00");
+    }
+
+    #[test]
+    fn test_custom_format9() {
+        test_f64(12.345, "0.00;\\-0.00;\\-", "12.35");
+    }
+
+    #[test]
+    fn test_custom_format10() {
+        test_f64(-12.345, "0.00;\\-0.00;\\-", "-12.35");
+    }
+
+    #[test]
+    fn test_custom_format11() {
+        test_f64(0.0, "0.00;\\-0.00;\\-", "-");
+    }
+
+    #[test]
+    fn test_custom_format12() {
+        test_str("abc", "0.00;\\-0.00;\\-", "abc");
+    }
+
+    #[test]
+    fn test_custom_format13() {
+        test_f64(12.345, "0.00;\\-0.00;\\-;\\ @\\ ", "12.35");
+    }
+
+    #[test]
+    fn test_custom_format14() {
+        test_f64(-12.345, "0.00;\\-0.00;\\-;\\ @\\ ", "-12.35");
+    }
+
+    #[test]
+    fn test_custom_format15() {
+        test_f64(0.0, "0.00;\\-0.00;\\-;\\ @\\ ", "-");
+    }
+
+    #[test]
+    fn test_custom_format16() {
+        test_str("abc", "0.00;\\-0.00;\\-;\\ @\\ ", " abc ");
+    }
+
+    #[test]
+    fn test_custom_general1() {
+        test_str("", "General", "");
     }
 }

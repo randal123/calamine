@@ -15,7 +15,7 @@ fn get_builtin_formats() -> &'static HashMap<usize, CellFormat> {
     INSTANCE.get_or_init(|| {
         let mut hash = HashMap::new();
 
-	hash.insert(0, detect_custom_number_format("General"));
+        hash.insert(0, detect_custom_number_format("General"));
         hash.insert(1, detect_custom_number_format("0"));
 
         hash.insert(2, detect_custom_number_format("0.00"));
@@ -438,7 +438,7 @@ pub fn format_excel_f64_ref<'a>(
         Some(CellFormat::Custom(custom_format)) => {
             format_custom_format_f64(value, custom_format, is_1904)
         }
-	// FIXME, we shuld handle General format for f64 here and not in 'rsbom'
+        // FIXME, we shuld handle General format for f64 here and not in 'rsbom'
         _ => DataTypeRef::Float(value),
     }
 }
